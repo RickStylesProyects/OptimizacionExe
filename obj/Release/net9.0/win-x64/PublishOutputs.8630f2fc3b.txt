@@ -1,0 +1,5 @@
+C:\Users\WinterOS\Desktop\Programacion\OptimizacionExe\Build_Final_Test\RS Optimizer.exe
+C:\Users\WinterOS\Desktop\Programacion\OptimizacionExe\Build_Final_Test\RS Optimizer.dll
+C:\Users\WinterOS\Desktop\Programacion\OptimizacionExe\Build_Final_Test\RS Optimizer.deps.json
+C:\Users\WinterOS\Desktop\Programacion\OptimizacionExe\Build_Final_Test\RS Optimizer.runtimeconfig.json
+C:\Users\WinterOS\Desktop\Programacion\OptimizacionExe\Build_Final_Test\RS Optimizer.pdb

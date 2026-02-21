@@ -6,18 +6,57 @@ echo    CONSTRUYENDO EJECUTABLE INDEPENDIENTE
 echo ==========================================
 echo.
 
-REM Definir carpeta de salida
+REM 1. Compilar RS RAM Optimizer (C++)
+echo [1/2] Compilando RS RAM Optimizer (Microprograma)...
+cd RamOptimizer
+
+REM Añadir rutas comunes de compiladores al PATH temporalmente para facilitar la vida del usuario
+set "PATH=%PATH%;C:\msys64\ucrt64\bin;C:\msys64\mingw64\bin;C:\MinGW\bin"
+
+where cl >nul 2>nul
+if %errorlevel%==0 (
+    echo    [-] Usando MSVC...
+    rc resource.rc
+    cl main.cpp resource.res /Fe:"RS RAM Optimizer.exe" User32.lib Psapi.lib Shell32.lib /link /SUBSYSTEM:WINDOWS
+    del *.obj *.res >nul 2>nul
+    goto :compile_csharp
+)
+
+where g++ >nul 2>nul
+if %errorlevel%==0 (
+    echo    [-] Usando MinGW/GCC...
+    windres resource.rc -O coff -o resource.res
+    g++ main.cpp resource.res -o "RS RAM Optimizer.exe" -O3 -mwindows -lpsapi -luser32 -lshell32 -static-libgcc -static-libstdc++
+    del resource.res >nul 2>nul
+    goto :compile_csharp
+)
+
+color 4
+echo [ADVERTENCIA] No se encontro compilador C++ (cl.exe o g++) en el PATH actual.
+echo Usando el ejecutable preexistente si esta disponible (sin los ultimos cambios de codigo).
+if exist "RS RAM Optimizer.exe" (
+    echo    [+] "RS RAM Optimizer.exe" precompilado encontrado.
+) else (
+    echo [ERROR] No se encontro "RS RAM Optimizer.exe".
+    pause
+    exit /b 1
+)
+
+:compile_csharp
+cd ..
+echo.
+
+REM 2. Compilar RS Optimizer Principal (C#)
+echo [2/2] Compilando RS Optimizer Principal (.NET)...
 set OUTPUT_DIR=Build_Final
 
 REM Limpiar carpeta anterior si existe
 if exist "%OUTPUT_DIR%" (
-    echo Limpiando carpeta anterior...
+    echo    [-] Limpiando build anterior...
     rd /s /q "%OUTPUT_DIR%"
 )
 
-REM Crear nueva carpeta
 mkdir "%OUTPUT_DIR%"
-
 echo.
 echo Compilando... (esto puede tardar unos segundos)
 echo.

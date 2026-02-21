@@ -12,3 +12,18 @@ C:\Users\eport\Escritorio\Programacion\OptimizacionExe\obj\Debug\net9.0\refint\O
 C:\Users\eport\Escritorio\Programacion\OptimizacionExe\obj\Debug\net9.0\OptimizacionExe.pdb
 C:\Users\eport\Escritorio\Programacion\OptimizacionExe\obj\Debug\net9.0\OptimizacionExe.genruntimeconfig.cache
 C:\Users\eport\Escritorio\Programacion\OptimizacionExe\obj\Debug\net9.0\ref\OptimizacionExe.dll
+C:\Users\WinterOS\Desktop\Programacion\OptimizacionExe\bin\Debug\net9.0\RS Optimizer.exe
+C:\Users\WinterOS\Desktop\Programacion\OptimizacionExe\bin\Debug\net9.0\RS Optimizer.deps.json
+C:\Users\WinterOS\Desktop\Programacion\OptimizacionExe\bin\Debug\net9.0\RS Optimizer.runtimeconfig.json
+C:\Users\WinterOS\Desktop\Programacion\OptimizacionExe\bin\Debug\net9.0\RS Optimizer.dll
+C:\Users\WinterOS\Desktop\Programacion\OptimizacionExe\bin\Debug\net9.0\RS Optimizer.pdb
+C:\Users\WinterOS\Desktop\Programacion\OptimizacionExe\obj\Debug\net9.0\OptimizacionExe.GeneratedMSBuildEditorConfig.editorconfig
+C:\Users\WinterOS\Desktop\Programacion\OptimizacionExe\obj\Debug\net9.0\OptimizacionExe.AssemblyInfoInputs.cache
+C:\Users\WinterOS\Desktop\Programacion\OptimizacionExe\obj\Debug\net9.0\OptimizacionExe.AssemblyInfo.cs
+C:\Users\WinterOS\Desktop\Programacion\OptimizacionExe\obj\Debug\net9.0\OptimizacionExe.csproj.CoreCompileInputs.cache
+C:\Users\WinterOS\Desktop\Programacion\OptimizacionExe\obj\Debug\net9.0\OptimizacionExe.sourcelink.json
+C:\Users\WinterOS\Desktop\Programacion\OptimizacionExe\obj\Debug\net9.0\RS Optimizer.dll
+C:\Users\WinterOS\Desktop\Programacion\OptimizacionExe\obj\Debug\net9.0\refint\RS Optimizer.dll
+C:\Users\WinterOS\Desktop\Programacion\OptimizacionExe\obj\Debug\net9.0\RS Optimizer.pdb
+C:\Users\WinterOS\Desktop\Programacion\OptimizacionExe\obj\Debug\net9.0\OptimizacionExe.genruntimeconfig.cache
+C:\Users\WinterOS\Desktop\Programacion\OptimizacionExe\obj\Debug\net9.0\ref\RS Optimizer.dll

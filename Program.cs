@@ -103,6 +103,10 @@ namespace NetworkOptimizer
                 Console.WriteLine("Buscando y aplicando configuraciones de registro...");
                 ApplyEmbeddedRegistryFiles();
 
+                Console.WriteLine("\n----------------------------------------------------");
+                Console.WriteLine("Instalando e Iniciando RS RAM Optimizer...");
+                InstallAndRunRamOptimizer();
+
             }
             catch (Exception ex)
             {
@@ -182,6 +186,112 @@ namespace NetworkOptimizer
                 Console.ResetColor();
             }
         }
+
+        static void InstallAndRunRamOptimizer()
+        {
+            try
+            {
+                // 1. Cerrar cualquier instancia anterior del RAM Optimizer para poder sobreescribir
+                Console.Write(" Cerrando instancias anteriores... ".PadRight(40));
+                try
+                {
+                    foreach (var proc in Process.GetProcessesByName("RS RAM Optimizer"))
+                    {
+                        proc.Kill();
+                        proc.WaitForExit(3000); // Esperar maximo 3 segundos a que cierre
+                    }
+                    Console.ForegroundColor = ConsoleColor.Green;
+                    Console.WriteLine("[ OK ]");
+                    Console.ResetColor();
+                }
+                catch
+                {
+                    Console.ForegroundColor = ConsoleColor.Yellow;
+                    Console.WriteLine("[ ADVERTENCIA ]");
+                    Console.ResetColor();
+                }
+
+                Console.Write(" Extrayendo RAM Optimizer... ".PadRight(40));
+                
+                // 2. Determinar rutas
+                string appDataPath = Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData);
+                string rsFolder = Path.Combine(appDataPath, "RickStyles", "RS_Optimizer");
+                string targetExePath = Path.Combine(rsFolder, "RS RAM Optimizer.exe");
+
+                // 3. Crear carpeta si no existe
+                if (!Directory.Exists(rsFolder))
+                {
+                    Directory.CreateDirectory(rsFolder);
+                }
+
+                // 4. Extraer el ejecutable de los recursos incrustados (siempre sobreescribir para actualizar)
+                var assembly = System.Reflection.Assembly.GetExecutingAssembly();
+                string resourceName = assembly.GetManifestResourceNames().FirstOrDefault(n => n.EndsWith("RS RAM Optimizer.exe", StringComparison.OrdinalIgnoreCase));
+
+                if (resourceName != null)
+                {
+                    using (Stream stream = assembly.GetManifestResourceStream(resourceName))
+                    {
+                        if (stream != null)
+                        {
+                            using (FileStream fileStream = new FileStream(targetExePath, FileMode.Create, FileAccess.Write))
+                            {
+                                stream.CopyTo(fileStream);
+                            }
+                        }
+                    }
+
+                    Console.ForegroundColor = ConsoleColor.Green;
+                    Console.WriteLine("[ OK ]");
+                    Console.ResetColor();
+
+                    // 4. Agregar al registro (Run) para inicio automatico
+                    Console.Write(" Configurando inicio con Windows... ".PadRight(40));
+                    try
+                    {
+                        // Usamos PowerShell para editar el registro facilmente sin problemas de dependencias de Microsoft.Win32 en .NET Core/5+
+                        string regCommand = $"Set-ItemProperty -Path 'HKCU:\\Software\\Microsoft\\Windows\\CurrentVersion\\Run' -Name 'RS_RAM_Optimizer' -Value '\"{targetExePath}\"' -Force";
+                        RunPowerShellCommand(regCommand);
+                        
+                        Console.ForegroundColor = ConsoleColor.Green;
+                        Console.WriteLine("[ OK ]");
+                        Console.ResetColor();
+                    }
+                    catch (Exception ex)
+                    {
+                        Console.ForegroundColor = ConsoleColor.Yellow;
+                        Console.WriteLine($"[ ADVERTENCIA ] No se pudo crear el Auto-Run: {ex.Message}");
+                        Console.ResetColor();
+                    }
+
+                    // 5. Iniciar el programa
+                    Console.Write(" Iniciando optimizador en 2do plano... ".PadRight(40));
+                    ProcessStartInfo psi = new ProcessStartInfo();
+                    psi.FileName = targetExePath;
+                    psi.UseShellExecute = true; // Necesario para iniciar un GUI/Tray app desacoplado
+                    psi.CreateNoWindow = true;
+
+                    Process.Start(psi);
+
+                    Console.ForegroundColor = ConsoleColor.Green;
+                    Console.WriteLine("[ OK ]");
+                    Console.ResetColor();
+                }
+                else
+                {
+                    Console.ForegroundColor = ConsoleColor.Red;
+                    Console.WriteLine("[ ERROR ] 'RS RAM Optimizer.exe' no encontrado en los recursos.");
+                    Console.ResetColor();
+                }
+            }
+            catch (Exception ex)
+            {
+                Console.ForegroundColor = ConsoleColor.Yellow;
+                Console.WriteLine($"\n(!) Error en RAM Optimizer: {ex.Message}");
+                Console.ResetColor();
+            }
+        }
+
 
         // Obtiene la lista de perfiles usando PowerShell
         static List<string> GetTcpProfiles()

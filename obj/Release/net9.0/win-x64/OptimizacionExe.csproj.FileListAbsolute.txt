@@ -197,6 +197,21 @@ C:\Users\eport\Escritorio\Programacion\OptimizacionExe\obj\Release\net9.0\win-x6
 C:\Users\eport\Escritorio\Programacion\OptimizacionExe\obj\Release\net9.0\win-x64\OptimizacionExe.pdb
 C:\Users\eport\Escritorio\Programacion\OptimizacionExe\obj\Release\net9.0\win-x64\OptimizacionExe.genruntimeconfig.cache
 C:\Users\eport\Escritorio\Programacion\OptimizacionExe\obj\Release\net9.0\win-x64\ref\OptimizacionExe.dll
+C:\Users\WinterOS\Desktop\Programacion\OptimizacionExe\obj\Release\net9.0\win-x64\OptimizacionExe.GeneratedMSBuildEditorConfig.editorconfig
+C:\Users\WinterOS\Desktop\Programacion\OptimizacionExe\obj\Release\net9.0\win-x64\OptimizacionExe.AssemblyInfoInputs.cache
+C:\Users\WinterOS\Desktop\Programacion\OptimizacionExe\obj\Release\net9.0\win-x64\OptimizacionExe.AssemblyInfo.cs
+C:\Users\WinterOS\Desktop\Programacion\OptimizacionExe\obj\Release\net9.0\win-x64\OptimizacionExe.csproj.CoreCompileInputs.cache
+C:\Users\WinterOS\Desktop\Programacion\OptimizacionExe\obj\Release\net9.0\win-x64\OptimizacionExe.genruntimeconfig.cache
+C:\Users\WinterOS\Desktop\Programacion\OptimizacionExe\bin\Release\net9.0\win-x64\RS Optimizer.exe
+C:\Users\WinterOS\Desktop\Programacion\OptimizacionExe\bin\Release\net9.0\win-x64\RS Optimizer.deps.json
+C:\Users\WinterOS\Desktop\Programacion\OptimizacionExe\bin\Release\net9.0\win-x64\RS Optimizer.runtimeconfig.json
+C:\Users\WinterOS\Desktop\Programacion\OptimizacionExe\bin\Release\net9.0\win-x64\RS Optimizer.dll
+C:\Users\WinterOS\Desktop\Programacion\OptimizacionExe\bin\Release\net9.0\win-x64\RS Optimizer.pdb
+C:\Users\WinterOS\Desktop\Programacion\OptimizacionExe\obj\Release\net9.0\win-x64\RS Optimizer.dll
+C:\Users\WinterOS\Desktop\Programacion\OptimizacionExe\obj\Release\net9.0\win-x64\refint\RS Optimizer.dll
+C:\Users\WinterOS\Desktop\Programacion\OptimizacionExe\obj\Release\net9.0\win-x64\RS Optimizer.pdb
+C:\Users\WinterOS\Desktop\Programacion\OptimizacionExe\obj\Release\net9.0\win-x64\ref\RS Optimizer.dll
+C:\Users\WinterOS\Desktop\Programacion\OptimizacionExe\obj\Release\net9.0\win-x64\OptimizacionExe.sourcelink.json
 C:\Users\WinterOS\Desktop\Programacion\OptimizacionExe\bin\Release\net9.0\win-x64\Microsoft.CSharp.dll
 C:\Users\WinterOS\Desktop\Programacion\OptimizacionExe\bin\Release\net9.0\win-x64\Microsoft.VisualBasic.Core.dll
 C:\Users\WinterOS\Desktop\Programacion\OptimizacionExe\bin\Release\net9.0\win-x64\Microsoft.VisualBasic.dll
@@ -381,18 +396,4 @@ C:\Users\WinterOS\Desktop\Programacion\OptimizacionExe\bin\Release\net9.0\win-x6
 C:\Users\WinterOS\Desktop\Programacion\OptimizacionExe\bin\Release\net9.0\win-x64\mscordbi.dll
 C:\Users\WinterOS\Desktop\Programacion\OptimizacionExe\bin\Release\net9.0\win-x64\mscorrc.dll
 C:\Users\WinterOS\Desktop\Programacion\OptimizacionExe\bin\Release\net9.0\win-x64\msquic.dll
-C:\Users\WinterOS\Desktop\Programacion\OptimizacionExe\obj\Release\net9.0\win-x64\OptimizacionExe.GeneratedMSBuildEditorConfig.editorconfig
-C:\Users\WinterOS\Desktop\Programacion\OptimizacionExe\obj\Release\net9.0\win-x64\OptimizacionExe.AssemblyInfoInputs.cache
-C:\Users\WinterOS\Desktop\Programacion\OptimizacionExe\obj\Release\net9.0\win-x64\OptimizacionExe.AssemblyInfo.cs
-C:\Users\WinterOS\Desktop\Programacion\OptimizacionExe\obj\Release\net9.0\win-x64\OptimizacionExe.csproj.CoreCompileInputs.cache
 C:\Users\WinterOS\Desktop\Programacion\OptimizacionExe\obj\Release\net9.0\win-x64\Optimiza.8696AB81.Up2Date
-C:\Users\WinterOS\Desktop\Programacion\OptimizacionExe\obj\Release\net9.0\win-x64\OptimizacionExe.genruntimeconfig.cache
-C:\Users\WinterOS\Desktop\Programacion\OptimizacionExe\bin\Release\net9.0\win-x64\RS Optimizer.exe
-C:\Users\WinterOS\Desktop\Programacion\OptimizacionExe\bin\Release\net9.0\win-x64\RS Optimizer.deps.json
-C:\Users\WinterOS\Desktop\Programacion\OptimizacionExe\bin\Release\net9.0\win-x64\RS Optimizer.runtimeconfig.json
-C:\Users\WinterOS\Desktop\Programacion\OptimizacionExe\bin\Release\net9.0\win-x64\RS Optimizer.dll
-C:\Users\WinterOS\Desktop\Programacion\OptimizacionExe\bin\Release\net9.0\win-x64\RS Optimizer.pdb
-C:\Users\WinterOS\Desktop\Programacion\OptimizacionExe\obj\Release\net9.0\win-x64\RS Optimizer.dll
-C:\Users\WinterOS\Desktop\Programacion\OptimizacionExe\obj\Release\net9.0\win-x64\refint\RS Optimizer.dll
-C:\Users\WinterOS\Desktop\Programacion\OptimizacionExe\obj\Release\net9.0\win-x64\RS Optimizer.pdb
-C:\Users\WinterOS\Desktop\Programacion\OptimizacionExe\obj\Release\net9.0\win-x64\ref\RS Optimizer.dll

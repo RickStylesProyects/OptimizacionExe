@@ -15,7 +15,7 @@ using System.Reflection;
 [assembly: System.Reflection.AssemblyCopyrightAttribute("© 2026 RickStyles")]
 [assembly: System.Reflection.AssemblyDescriptionAttribute("RS Optimizer")]
 [assembly: System.Reflection.AssemblyFileVersionAttribute("1.0.0.0")]
-[assembly: System.Reflection.AssemblyInformationalVersionAttribute("1.0.0")]
+[assembly: System.Reflection.AssemblyInformationalVersionAttribute("1.0.0+37de14119f2631ac06d82d5df51ec317743cc2c8")]
 [assembly: System.Reflection.AssemblyProductAttribute("RS Optimizer")]
 [assembly: System.Reflection.AssemblyTitleAttribute("RS Optimizer")]
 [assembly: System.Reflection.AssemblyVersionAttribute("1.0.0.0")]

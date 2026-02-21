@@ -1,0 +1,23 @@
+{
+  "runtimeTarget": {
+    "name": ".NETCoreApp,Version=v9.0",
+    "signature": ""
+  },
+  "compilationOptions": {},
+  "targets": {
+    ".NETCoreApp,Version=v9.0": {
+      "RS Optimizer/1.0.0": {
+        "runtime": {
+          "RS Optimizer.dll": {}
+        }
+      }
+    }
+  },
+  "libraries": {
+    "RS Optimizer/1.0.0": {
+      "type": "project",
+      "serviceable": false,
+      "sha512": ""
+    }
+  }
+}

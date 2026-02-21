@@ -10,12 +10,14 @@
 using System;
 using System.Reflection;
 
-[assembly: System.Reflection.AssemblyCompanyAttribute("OptimizacionExe")]
+[assembly: System.Reflection.AssemblyCompanyAttribute("RickStyles")]
 [assembly: System.Reflection.AssemblyConfigurationAttribute("Debug")]
+[assembly: System.Reflection.AssemblyCopyrightAttribute("© 2026 RickStyles")]
+[assembly: System.Reflection.AssemblyDescriptionAttribute("RS Optimizer")]
 [assembly: System.Reflection.AssemblyFileVersionAttribute("1.0.0.0")]
-[assembly: System.Reflection.AssemblyInformationalVersionAttribute("1.0.0")]
-[assembly: System.Reflection.AssemblyProductAttribute("OptimizacionExe")]
-[assembly: System.Reflection.AssemblyTitleAttribute("OptimizacionExe")]
+[assembly: System.Reflection.AssemblyInformationalVersionAttribute("1.0.0+37de14119f2631ac06d82d5df51ec317743cc2c8")]
+[assembly: System.Reflection.AssemblyProductAttribute("RS Optimizer")]
+[assembly: System.Reflection.AssemblyTitleAttribute("RS Optimizer")]
 [assembly: System.Reflection.AssemblyVersionAttribute("1.0.0.0")]
 
 // Generado por la clase WriteCodeFragment de MSBuild.
