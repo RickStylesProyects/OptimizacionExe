@@ -1,0 +1,2 @@
+C:\Users\eport\Escritorio\Programacion\OptimizacionExe\Build_Final\OptimizacionExe.pdb
+C:\Users\eport\Escritorio\Programacion\OptimizacionExe\Build_Final\OptimizacionExe.exe

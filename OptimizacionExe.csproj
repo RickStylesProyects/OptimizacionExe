@@ -1,0 +1,25 @@
+﻿<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net9.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <ApplicationManifest>app.manifest</ApplicationManifest>
+    <AssemblyTitle>RS Optimizer</AssemblyTitle>
+    <Product>RS Optimizer</Product>
+    <Company>RickStyles</Company>
+    <Authors>RickStyles</Authors>
+    <Description>RS Optimizer</Description>
+    <Copyright>© 2026 RickStyles</Copyright>
+    <AssemblyVersion>1.0.0.0</AssemblyVersion>
+    <FileVersion>1.0.0.0</FileVersion>
+    <ApplicationIcon>Icono.ico</ApplicationIcon>
+    <AssemblyName>RS Optimizer</AssemblyName>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <EmbeddedResource Include="Regedit\*.reg" />
+  </ItemGroup>
+
+</Project>

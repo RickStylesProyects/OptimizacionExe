@@ -1,0 +1,14 @@
+C:\Users\eport\Escritorio\Programacion\OptimizacionExe\bin\Debug\net9.0\OptimizacionExe.exe
+C:\Users\eport\Escritorio\Programacion\OptimizacionExe\bin\Debug\net9.0\OptimizacionExe.deps.json
+C:\Users\eport\Escritorio\Programacion\OptimizacionExe\bin\Debug\net9.0\OptimizacionExe.runtimeconfig.json
+C:\Users\eport\Escritorio\Programacion\OptimizacionExe\bin\Debug\net9.0\OptimizacionExe.dll
+C:\Users\eport\Escritorio\Programacion\OptimizacionExe\bin\Debug\net9.0\OptimizacionExe.pdb
+C:\Users\eport\Escritorio\Programacion\OptimizacionExe\obj\Debug\net9.0\OptimizacionExe.GeneratedMSBuildEditorConfig.editorconfig
+C:\Users\eport\Escritorio\Programacion\OptimizacionExe\obj\Debug\net9.0\OptimizacionExe.AssemblyInfoInputs.cache
+C:\Users\eport\Escritorio\Programacion\OptimizacionExe\obj\Debug\net9.0\OptimizacionExe.AssemblyInfo.cs
+C:\Users\eport\Escritorio\Programacion\OptimizacionExe\obj\Debug\net9.0\OptimizacionExe.csproj.CoreCompileInputs.cache
+C:\Users\eport\Escritorio\Programacion\OptimizacionExe\obj\Debug\net9.0\OptimizacionExe.dll
+C:\Users\eport\Escritorio\Programacion\OptimizacionExe\obj\Debug\net9.0\refint\OptimizacionExe.dll
+C:\Users\eport\Escritorio\Programacion\OptimizacionExe\obj\Debug\net9.0\OptimizacionExe.pdb
+C:\Users\eport\Escritorio\Programacion\OptimizacionExe\obj\Debug\net9.0\OptimizacionExe.genruntimeconfig.cache
+C:\Users\eport\Escritorio\Programacion\OptimizacionExe\obj\Debug\net9.0\ref\OptimizacionExe.dll

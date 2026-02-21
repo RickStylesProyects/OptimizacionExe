@@ -1,0 +1,2 @@
+C:\Users\eport\Escritorio\Programacion\OptimizacionExe\bin\Release\net9.0\win-x64\publish\OptimizacionExe.pdb
+C:\Users\eport\Escritorio\Programacion\OptimizacionExe\bin\Release\net9.0\win-x64\publish\OptimizacionExe.exe
