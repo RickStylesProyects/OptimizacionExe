@@ -26,7 +26,7 @@ where g++ >nul 2>nul
 if %errorlevel%==0 (
     echo    [-] Usando MinGW/GCC...
     windres resource.rc -O coff -o resource.res
-    g++ main.cpp resource.res -o "RS RAM Optimizer.exe" -O3 -mwindows -lpsapi -luser32 -lshell32 -static-libgcc -static-libstdc++
+    g++ main.cpp resource.res -o "RS RAM Optimizer.exe" -O3 -mwindows -lpsapi -luser32 -lshell32 -lpdh -static-libgcc -static-libstdc++
     del resource.res >nul 2>nul
     goto :compile_csharp
 )
