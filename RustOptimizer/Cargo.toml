@@ -1,0 +1,18 @@
+[package]
+name = "rs_optimizer"
+version = "1.0.0"
+edition = "2021"
+authors = ["RickStyles"]
+description = "RS Optimizer natively compiled to Rust"
+
+[dependencies]
+
+[build-dependencies]
+winres = "0.1"
+
+[profile.release]
+opt-level = 3
+lto = true
+codegen-units = 1
+panic = "abort"
+strip = true
