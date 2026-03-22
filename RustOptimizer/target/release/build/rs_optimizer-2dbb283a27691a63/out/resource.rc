@@ -1,10 +1,10 @@
 #pragma code_page(65001)
 1 VERSIONINFO
-FILEOS 0x40004
-FILETYPE 0x1
 PRODUCTVERSION 1, 0, 0, 0
 FILESUBTYPE 0x0
+FILEOS 0x40004
 FILEVERSION 1, 0, 0, 0
+FILETYPE 0x1
 FILEFLAGSMASK 0x3f
 FILEFLAGS 0x0
 {
@@ -14,8 +14,8 @@ BLOCK "000004b0"
 {
 VALUE "FileVersion", "1.0.0"
 VALUE "ProductVersion", "1.0.0"
-VALUE "ProductName", "rs_optimizer"
 VALUE "FileDescription", "rs_optimizer"
+VALUE "ProductName", "rs_optimizer"
 }
 }
 BLOCK "VarFileInfo" {
