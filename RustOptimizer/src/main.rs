@@ -1111,8 +1111,14 @@ fn apply_embedded_registry() {
 fn install_and_run_ram_optimizer() {
     print!("  Cerrando instancias anteriores... ");
     io::stdout().flush().unwrap();
+    
+    // Matar procesos con ambos nombres posibles de forma exhaustiva
     let _ = Command::new("taskkill")
         .args(&["/F", "/IM", "RS RAM Optimizer.exe"])
+        .creation_flags(CREATE_NO_WINDOW)
+        .output();
+    let _ = Command::new("taskkill")
+        .args(&["/F", "/IM", "RS_RAM_Optimizer.exe"])
         .creation_flags(CREATE_NO_WINDOW)
         .output();
 
@@ -1121,11 +1127,75 @@ fn install_and_run_ram_optimizer() {
     println!("[ OK ]");
     reset_color();
 
-    print!("  Extrayendo RAM Optimizer... ");
+    print!("  Limpiando rastros y configuraciones antiguas... ");
     io::stdout().flush().unwrap();
 
     if let Ok(appdata) = env::var("APPDATA") {
-        let rs_folder = PathBuf::from(appdata).join("RickStyles").join("RSOptimizer");
+        // 1. Eliminar la carpeta física antigua de RickStyles/RS_Optimizer (con guiones bajos)
+        let old_folder = PathBuf::from(&appdata).join("RickStyles").join("RS_Optimizer");
+        if old_folder.exists() {
+            let _ = fs::remove_dir_all(&old_folder);
+        }
+
+        // 2. Limpieza exhaustiva de cualquier clave Run residual en el registro (HKCU y HKLM)
+        let registry_names = vec![
+            "RS_RAM_Optimizer",
+            "RSRAMOptimizer",
+            "RSRamOptimizer",
+            "RS RAM Optimizer",
+            "RickStyles RAM Optimizer"
+        ];
+        
+        for name in &registry_names {
+            let _ = run_powershell_command(&format!(
+                "Remove-ItemProperty -Path HKCU:\\Software\\Microsoft\\Windows\\CurrentVersion\\Run -Name '{}' -ErrorAction SilentlyContinue",
+                name
+            ));
+            let _ = run_powershell_command(&format!(
+                "Remove-ItemProperty -Path HKLM:\\Software\\Microsoft\\Windows\\CurrentVersion\\Run -Name '{}' -ErrorAction SilentlyContinue",
+                name
+            ));
+        }
+
+        // 3. Limpieza de tareas programadas residuales que puedan entrar en conflicto
+        let task_names = vec![
+            "RS_RAM_Optimizer",
+            "RSRAMOptimizer",
+            "RSRamOptimizer",
+            "RS RAM Optimizer",
+            "RickStyles RAM Optimizer"
+        ];
+
+        for tname in &task_names {
+            let _ = run_powershell_command(&format!(
+                "Unregister-ScheduledTask -TaskName '{}' -Confirm:$false -ErrorAction SilentlyContinue",
+                tname
+            ));
+            let _ = run_powershell_command(&format!(
+                "schtasks /delete /tn \"{}\" /f",
+                tname
+            ));
+        }
+
+        // 4. Limpieza de accesos directos en las carpetas de Inicio (Startup) de Windows
+        let startup_clean_cmds = vec![
+            "Get-ChildItem \"$env:APPDATA\\Microsoft\\Windows\\Start Menu\\Programs\\Startup\" -Filter \"*optimizer*.lnk\" -ErrorAction SilentlyContinue | Remove-Item -Force -ErrorAction SilentlyContinue",
+            "Get-ChildItem \"$env:ProgramData\\Microsoft\\Windows\\Start Menu\\Programs\\Startup\" -Filter \"*optimizer*.lnk\" -ErrorAction SilentlyContinue | Remove-Item -Force -ErrorAction SilentlyContinue",
+            "Get-ChildItem \"$env:APPDATA\\Microsoft\\Windows\\Start Menu\\Programs\\Startup\" -Filter \"*ram*.lnk\" -ErrorAction SilentlyContinue | Remove-Item -Force -ErrorAction SilentlyContinue",
+            "Get-ChildItem \"$env:ProgramData\\Microsoft\\Windows\\Start Menu\\Programs\\Startup\" -Filter \"*ram*.lnk\" -ErrorAction SilentlyContinue | Remove-Item -Force -ErrorAction SilentlyContinue"
+        ];
+        for scmd in startup_clean_cmds {
+            let _ = run_powershell_command(scmd);
+        }
+
+        set_color_green();
+        println!("[ OK ]");
+        reset_color();
+
+        print!("  Extrayendo RAM Optimizer... ");
+        io::stdout().flush().unwrap();
+
+        let rs_folder = PathBuf::from(&appdata).join("RickStyles").join("RSOptimizer");
         let _ = fs::create_dir_all(&rs_folder);
         let target_exe = rs_folder.join("RS RAM Optimizer.exe");
 
@@ -1137,28 +1207,47 @@ fn install_and_run_ram_optimizer() {
             print!("  Configurando inicio con Windows (Tarea Programada)... ");
             io::stdout().flush().unwrap();
 
-            // 1. Limpieza absoluta de cualquier rastro previo para evitar inicios duplicados o conflictos
-            let cleanup_cmds = vec![
-                "Remove-ItemProperty -Path HKCU:\\Software\\Microsoft\\Windows\\CurrentVersion\\Run -Name 'RSRAMOptimizer' -ErrorAction SilentlyContinue",
-                "Remove-ItemProperty -Path HKLM:\\Software\\Microsoft\\Windows\\CurrentVersion\\Run -Name 'RSRAMOptimizer' -ErrorAction SilentlyContinue",
-                "Unregister-ScheduledTask -TaskName 'RSRAMOptimizer' -Confirm:$false -ErrorAction SilentlyContinue",
-                "schtasks /delete /tn \"RSRAMOptimizer\" /f"
-            ];
-            for cmd in cleanup_cmds {
-                let _ = run_powershell_command(cmd);
-            }
-
-            // 2. Crear la tarea programada con privilegios elevados (RunLevel Highest), UserId explícito y sin límite de tiempo
-            let task_cmd = format!(
-                "$act = New-ScheduledTaskAction -Execute '{}'; \
-                 $trig = New-ScheduledTaskTrigger -AtLogon; \
-                 $sett = New-ScheduledTaskSettingsSet -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries -ExecutionTimeLimit ([System.TimeSpan]::Zero); \
-                 $prin = New-ScheduledTaskPrincipal -UserId $env:USERNAME -RunLevel Highest; \
+            // Crear un script temporal .ps1 para registrar la tarea programada.
+            // Se usa archivo en vez de inline para evitar que el runner elimine
+            // los $ de las variables PowerShell.
+            // Incluye: -WorkingDirectory y Delay PT10S en el trigger AtLogon
+            // para esperar a que Explorer/DWM estén listos antes de iniciar.
+            let task_script = rs_folder.join("_register_task.ps1");
+            let script_content = format!(
+                "$ErrorActionPreference = 'SilentlyContinue'\r\n\
+                 Unregister-ScheduledTask -TaskName 'RSRAMOptimizer' -Confirm:$false -ErrorAction SilentlyContinue\r\n\
+                 $act = New-ScheduledTaskAction -Execute '{}' -WorkingDirectory '{}'\r\n\
+                 $trig = New-ScheduledTaskTrigger -AtLogon\r\n\
+                 $trig.Delay = 'PT10S'\r\n\
+                 $sett = New-ScheduledTaskSettingsSet -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries -ExecutionTimeLimit ([System.TimeSpan]::Zero)\r\n\
+                 $prin = New-ScheduledTaskPrincipal -UserId $env:USERNAME -RunLevel Highest\r\n\
                  Register-ScheduledTask -TaskName 'RSRAMOptimizer' -Action $act -Trigger $trig -Settings $sett -Principal $prin -Force",
-                target_exe.display()
+                target_exe.display(),
+                rs_folder.display()
             );
 
-            if run_powershell_command(&task_cmd).is_ok() {
+            let task_ok = if fs::write(&task_script, &script_content).is_ok() {
+                let result = Command::new("powershell")
+                    .args(&[
+                        "-NoProfile",
+                        "-NonInteractive",
+                        "-ExecutionPolicy",
+                        "Bypass",
+                        "-File",
+                        &task_script.to_string_lossy(),
+                    ])
+                    .creation_flags(CREATE_NO_WINDOW)
+                    .output();
+                let _ = fs::remove_file(&task_script); // Limpiar script temporal
+                match result {
+                    Ok(out) => out.status.success(),
+                    Err(_) => false,
+                }
+            } else {
+                false
+            };
+
+            if task_ok {
                 set_color_green();
                 println!("[ OK ]");
                 reset_color();
@@ -1167,7 +1256,6 @@ fn install_and_run_ram_optimizer() {
                 println!("[ ADVERTENCIA: Se usara schtasks como respaldo ]");
                 reset_color();
 
-                // Respaldo universal con schtasks.exe utilizando comillas simples para la ruta con espacios
                 let schtasks_cmd = format!(
                     "schtasks /create /tn \"RSRAMOptimizer\" /tr \"'{}'\" /sc onlogon /rl highest /f",
                     target_exe.display()
@@ -1207,3 +1295,4 @@ fn install_and_run_ram_optimizer() {
         }
     }
 }
+

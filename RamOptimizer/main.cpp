@@ -22,7 +22,7 @@
 // ==============================================================
 //  MODO DEBUG: Cambiar a 0 para produccion (sin consola)
 // ==============================================================
-#define DEBUG_MODE 1
+#define DEBUG_MODE 0
 
 // ==============================================================
 //  CONSTANTES
@@ -830,11 +830,12 @@ static void ApplyGlobalTimerResolution() {
             (PFN_NtSetTimerResolution)GetProcAddress(hNtDll, "NtSetTimerResolution");
 
         if (pfnNtSetTimerResolution) {
-            ULONG currentRes;
+            ULONG currentRes = 0;
             // 5000 = 0.5ms (la resolucion maxima suportada por Windows)
-            pfnNtSetTimerResolution(5000, TRUE, &currentRes);
+            NTSTATUS status = pfnNtSetTimerResolution(5000, TRUE, &currentRes);
 #if DEBUG_MODE
-            DBG(">>> Timer Resolution Kernel fijado a 0.5ms\n\n");
+            DBG(">>> NtSetTimerResolution(5000, TRUE, ...) retorno status 0x%08X (Resolucion actual: %.3f ms)\n\n", 
+                status, (double)currentRes / 10000.0);
 #endif
         }
     }
