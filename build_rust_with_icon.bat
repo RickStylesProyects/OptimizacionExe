@@ -148,7 +148,7 @@ color 0f
 echo [OK] RS RAM Optimizer  -^> %RAM_EXE%
 echo [OK] RS Optimizer      -^> %RUST_EXE%
 echo.
-pause
+echo Compilacion completada.
 exit /b 0
 
 

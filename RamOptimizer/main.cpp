@@ -12,6 +12,7 @@
 #include <stdio.h>
 #include <string.h>
 #include <stdlib.h>
+#include <stdarg.h>
 
 #pragma comment(lib, "psapi.lib")
 #pragma comment(lib, "user32.lib")
@@ -21,7 +22,7 @@
 // ==============================================================
 //  MODO DEBUG: Cambiar a 0 para produccion (sin consola)
 // ==============================================================
-#define DEBUG_MODE 0
+#define DEBUG_MODE 1
 
 // ==============================================================
 //  CONSTANTES
@@ -31,7 +32,7 @@
 #define ID_TRAY_EXIT        1002
 #define TIMER_OPTIMIZE      2001
 #define MAX_PROCS           1024
-#define OPTIMIZE_INTERVAL   180000  // 3 minutos en ms
+#define OPTIMIZE_INTERVAL   5000  // 5 segundos en ms para pruebas de depuración
 #define CPU_SAMPLE_DELAY    500     // Delay entre muestras CPU en ms
 #define SCORE_THRESHOLD     100.0   // Puntos minimos para considerar "juego"
 
@@ -41,9 +42,20 @@
 #define W_GPU       4.0
 #define BONUS_FS    20.0    // Bonus por pantalla completa
 
-// Macro de debug
+// Macro de debug e impresión en tiempo real en archivo
+static void WriteLog(const char* fmt, ...) {
+    FILE* f = fopen("C:\\Users\\WinterOS\\Desktop\\Programacion\\OptimizacionExe\\rs_ram_optimizer_debug.log", "a");
+    if (f) {
+        va_list args;
+        va_start(args, fmt);
+        vfprintf(f, fmt, args);
+        va_end(args);
+        fclose(f);
+    }
+}
+
 #if DEBUG_MODE
-  #define DBG(fmt, ...) printf(fmt, ##__VA_ARGS__)
+  #define DBG(fmt, ...) WriteLog(fmt, ##__VA_ARGS__)
 #else
   #define DBG(fmt, ...) ((void)0)
 #endif
@@ -85,6 +97,7 @@ typedef PDH_STATUS (WINAPI *PFN_PdhAddEnglishCounterA)(
     PDH_HQUERY, LPCSTR, DWORD_PTR, PDH_HCOUNTER*);
 static PFN_PdhAddEnglishCounterA g_pfnAddEngCounter = NULL;
 static BOOL g_pdhChecked = FALSE;
+static void ApplyGlobalTimerResolution();
 
 // ==============================================================
 //  LISTA NEGRA: Procesos que NUNCA se consideran "juego"
@@ -302,9 +315,236 @@ static double FindGpuForPid(GpuPidEntry* table, int count, DWORD pid) {
 }
 
 // ==============================================================
+//  ESTRUCTURAS Y PROTOTIPOS ADICIONALES (ORQUESTRADOR)
+// ==============================================================
+#define SystemMemoryListInformation 80
+#define MemoryPurgeStandbyList 4
+
+typedef struct _SYSTEM_MEMORY_LIST_COMMAND {
+    ULONG Command;
+} SYSTEM_MEMORY_LIST_COMMAND;
+
+typedef NTSTATUS(WINAPI* PFN_NtSetSystemInformation)(INT, PVOID, ULONG);
+typedef struct {
+    DWORD pid;
+    DWORD originalPriority;
+} DepressedProcess;
+
+static BOOL g_gameModeActive = FALSE;
+
+static DepressedProcess g_depressedProcs[MAX_PROCS];
+static int g_depressedCount = 0;
+
+static BOOL IsDepressable(const char* name) {
+    static const char* DEPRESS_LIST[] = {
+        "chrome.exe", "firefox.exe", "msedge.exe", "opera.exe", "brave.exe",
+        "discord.exe", "spotify.exe", "steamwebhelper.exe", "msedgewebview2.exe",
+        "code.exe", "devenv.exe", "wallpaper32.exe", "wallpaper64.exe",
+        NULL
+    };
+    for (int i = 0; DEPRESS_LIST[i] != NULL; i++) {
+        if (_stricmp(name, DEPRESS_LIST[i]) == 0)
+            return TRUE;
+    }
+    return FALSE;
+}
+
+static void PurgeStandbyList() {
+    HMODULE hNtDll = GetModuleHandleW(L"ntdll.dll");
+    if (!hNtDll) return;
+
+    PFN_NtSetSystemInformation pfnNtSetSystemInformation =
+        (PFN_NtSetSystemInformation)GetProcAddress(hNtDll, "NtSetSystemInformation");
+
+    if (pfnNtSetSystemInformation) {
+        SYSTEM_MEMORY_LIST_COMMAND command;
+        command.Command = MemoryPurgeStandbyList;
+
+        NTSTATUS status = pfnNtSetSystemInformation(
+            SystemMemoryListInformation,
+            &command,
+            sizeof(SYSTEM_MEMORY_LIST_COMMAND)
+        );
+        DBG("  [RAM] Purgado de Standby List ejecutado (status 0x%lx)\n", status);
+    }
+}
+
+static void DepressBackgroundProcesses(DWORD gamePid) {
+    if (g_depressedCount > 0) return;
+
+    DWORD pids[MAX_PROCS];
+    DWORD cbNeeded;
+    if (!EnumProcesses(pids, sizeof(pids), &cbNeeded))
+        return;
+
+    DWORD numProcs = cbNeeded / sizeof(DWORD);
+    DWORD currentPid = GetCurrentProcessId();
+
+    for (DWORD i = 0; i < numProcs && g_depressedCount < MAX_PROCS; i++) {
+        DWORD pid = pids[i];
+        if (pid == 0 || pid == currentPid || pid == gamePid) continue;
+
+        HANDLE hProc = OpenProcess(PROCESS_QUERY_INFORMATION | PROCESS_SET_INFORMATION, FALSE, pid);
+        if (!hProc) continue;
+
+        char name[MAX_PATH] = {0};
+        if (GetModuleBaseNameA(hProc, NULL, name, MAX_PATH) > 0) {
+            if (IsDepressable(name)) {
+                DWORD priority = GetPriorityClass(hProc);
+                if (priority == NORMAL_PRIORITY_CLASS || priority == ABOVE_NORMAL_PRIORITY_CLASS) {
+                    if (SetPriorityClass(hProc, IDLE_PRIORITY_CLASS)) {
+                        g_depressedProcs[g_depressedCount].pid = pid;
+                        g_depressedProcs[g_depressedCount].originalPriority = priority;
+                        g_depressedCount++;
+                        DBG("  [DEPRESS] %s (PID %lu) deprimido a IDLE\n", name, pid);
+
+                        ULONG ioPriority = 0; // IoPriorityIdle
+                        HMODULE hNtDll = GetModuleHandleW(L"ntdll.dll");
+                        if (hNtDll) {
+                            typedef NTSTATUS(WINAPI* PFN_NtSetInformationProcess)(HANDLE, ULONG, PVOID, ULONG);
+                            PFN_NtSetInformationProcess pfnSetInfo = 
+                                (PFN_NtSetInformationProcess)GetProcAddress(hNtDll, "NtSetInformationProcess");
+                            if (pfnSetInfo) {
+                                pfnSetInfo(hProc, 21, &ioPriority, sizeof(ULONG));
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        CloseHandle(hProc);
+    }
+}
+
+static void RestoreBackgroundProcesses() {
+    if (g_depressedCount == 0) return;
+
+    for (int i = 0; i < g_depressedCount; i++) {
+        DWORD pid = g_depressedProcs[i].pid;
+        DWORD originalPriority = g_depressedProcs[i].originalPriority;
+
+        HANDLE hProc = OpenProcess(PROCESS_SET_INFORMATION, FALSE, pid);
+        if (hProc) {
+            SetPriorityClass(hProc, originalPriority);
+            
+            ULONG ioPriority = 2; // IoPriorityNormal
+            HMODULE hNtDll = GetModuleHandleW(L"ntdll.dll");
+            if (hNtDll) {
+                typedef NTSTATUS(WINAPI* PFN_NtSetInformationProcess)(HANDLE, ULONG, PVOID, ULONG);
+                PFN_NtSetInformationProcess pfnSetInfo = 
+                    (PFN_NtSetInformationProcess)GetProcAddress(hNtDll, "NtSetInformationProcess");
+                if (pfnSetInfo) {
+                    pfnSetInfo(hProc, 21, &ioPriority, sizeof(ULONG));
+                }
+            }
+            CloseHandle(hProc);
+        }
+    }
+    DBG("  [DEPRESS] %d procesos de fondo restaurados a normal\n", g_depressedCount);
+    g_depressedCount = 0;
+}
+
+static void SetGameCpuAffinity(DWORD gamePid) {
+    HANDLE hGame = OpenProcess(PROCESS_QUERY_INFORMATION | PROCESS_SET_INFORMATION, FALSE, gamePid);
+    if (!hGame) return;
+
+    DWORD returnedLength = 0;
+    // 1. Obtener el tamaño necesario
+    GetLogicalProcessorInformationEx(RelationProcessorCore, NULL, &returnedLength);
+    if (returnedLength == 0) {
+        CloseHandle(hGame);
+        return;
+    }
+
+    PSYSTEM_LOGICAL_PROCESSOR_INFORMATION_EX pBuffer = (PSYSTEM_LOGICAL_PROCESSOR_INFORMATION_EX)malloc(returnedLength);
+    if (!pBuffer) {
+        CloseHandle(hGame);
+        return;
+    }
+
+    if (!GetLogicalProcessorInformationEx(RelationProcessorCore, pBuffer, &returnedLength)) {
+        free(pBuffer);
+        CloseHandle(hGame);
+        return;
+    }
+
+    // Primero, encontrar la clase de eficiencia máxima (maxEfficiencyClass)
+    BYTE maxEfficiencyClass = 0;
+    DWORD_PTR fullSystemMask = 0;
+    DWORD_PTR pCoresMask = 0;
+    BOOL hasHybridCores = FALSE;
+
+    DWORD offset = 0;
+    while (offset < returnedLength) {
+        PSYSTEM_LOGICAL_PROCESSOR_INFORMATION_EX pCurr = (PSYSTEM_LOGICAL_PROCESSOR_INFORMATION_EX)((BYTE*)pBuffer + offset);
+        if (pCurr->Relationship == RelationProcessorCore) {
+            BYTE effClass = pCurr->Processor.EfficiencyClass;
+            if (effClass > maxEfficiencyClass) {
+                maxEfficiencyClass = effClass;
+            }
+        }
+        offset += pCurr->Size;
+    }
+
+    if (maxEfficiencyClass > 0) {
+        hasHybridCores = TRUE;
+    }
+
+    // Segundo paso: construir las máscaras de afinidad
+    offset = 0;
+    while (offset < returnedLength) {
+        PSYSTEM_LOGICAL_PROCESSOR_INFORMATION_EX pCurr = (PSYSTEM_LOGICAL_PROCESSOR_INFORMATION_EX)((BYTE*)pBuffer + offset);
+        if (pCurr->Relationship == RelationProcessorCore) {
+            if (pCurr->Processor.GroupCount > 0) {
+                DWORD_PTR coreMask = pCurr->Processor.GroupMask[0].Mask;
+                fullSystemMask |= coreMask;
+
+                if (hasHybridCores) {
+                    if (pCurr->Processor.EfficiencyClass == maxEfficiencyClass) {
+                        pCoresMask |= coreMask;
+                    }
+                }
+            }
+        }
+        offset += pCurr->Size;
+    }
+    free(pBuffer);
+
+    DWORD_PTR finalMask = 0;
+    if (hasHybridCores && pCoresMask != 0) {
+        finalMask = pCoresMask;
+        // Excluir el Core 0 (primer hilo) por si acaso corre allí el SO, pero solo si quedan otros núcleos P libres
+        if ((finalMask & ~((DWORD_PTR)1)) != 0) {
+            finalMask &= ~((DWORD_PTR)1);
+        }
+        DBG("  [AFFINITY] CPU Hibrida Detectada. Afinidad P-Cores (Clase %d): 0x%p\n", maxEfficiencyClass, (void*)finalMask);
+    } else {
+        finalMask = fullSystemMask;
+        // Excluir Core 0 para interrupciones
+        if ((finalMask & ~((DWORD_PTR)1)) != 0) {
+            finalMask &= ~((DWORD_PTR)1);
+        }
+        DBG("  [AFFINITY] CPU Homogenea Detectada. Afinidad fijada a todos los cores (menos Core 0): 0x%p\n", (void*)finalMask);
+    }
+
+    if (finalMask != 0) {
+        if (SetProcessAffinityMask(hGame, finalMask)) {
+            DBG("  [AFFINITY] Afinidad CPU del juego establecida correctamente.\n");
+        } else {
+            DBG("  [AFFINITY] Error al establecer afinidad CPU (0x%lx).\n", GetLastError());
+        }
+    }
+    CloseHandle(hGame);
+}
+
+
+// ==============================================================
 //  OPTIMIZACION INTELIGENTE
 // ==============================================================
 void SmartOptimize() {
+    // Asegurar temporizador global a 0.5ms
+    ApplyGlobalTimerResolution();
+
     DWORD pids[MAX_PROCS];
     DWORD cbNeeded;
     if (!EnumProcesses(pids, sizeof(pids), &cbNeeded))
@@ -464,20 +704,35 @@ void SmartOptimize() {
     if (bestIdx >= 0 && bestScore >= SCORE_THRESHOLD) {
         gamePid = g_procs[bestIdx].pid;
         g_protectedPid = gamePid;
+        g_gameModeActive = TRUE;
         DBG("  >>> JUEGO DETECTADO: %s (PID %lu, Score %.1f)\n",
             g_procs[bestIdx].name, gamePid, bestScore);
 
-        // Subir prioridad del juego
+        // 1. Subir prioridad del juego
         HANDLE hGame = OpenProcess(PROCESS_SET_INFORMATION, FALSE, gamePid);
         if (hGame) {
             SetPriorityClass(hGame, HIGH_PRIORITY_CLASS);
             DBG("  >>> Prioridad elevada a HIGH_PRIORITY_CLASS\n");
             CloseHandle(hGame);
         }
+
+        // 2. Aplicar afinidad de CPU para el juego
+        SetGameCpuAffinity(gamePid);
+
+        // 3. Deprimir procesos en segundo plano
+        DepressBackgroundProcesses(gamePid);
+
+        // 4. Purgar Standby List para liberar RAM al iniciar/durante el juego
+        PurgeStandbyList();
+
     } else {
         g_protectedPid = 0;
+        g_gameModeActive = FALSE;
         DBG("  >>> No se detecto juego (Score max: %.1f, Threshold: %.1f)\n",
             bestScore, SCORE_THRESHOLD);
+
+        // Restaurar estado si estabamos en modo juego
+        RestoreBackgroundProcesses();
     }
 
     // Aplicar EmptyWorkingSet a todos excepto el juego
@@ -547,7 +802,28 @@ LRESULT CALLBACK WindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam) 
 // ==============================================================
 typedef NTSTATUS(WINAPI* PFN_NtSetTimerResolution)(ULONG, BOOLEAN, PULONG);
 
+static void DisablePowerThrottling() {
+    struct {
+        ULONG Version;
+        ULONG ControlMask;
+        ULONG StateMask;
+    } PowerThrottling;
+
+    PowerThrottling.Version = 1; // PROCESS_POWER_THROTTLING_CURRENT_VERSION
+    PowerThrottling.ControlMask = 0x1 | 0x4; // PROCESS_POWER_THROTTLING_EXECUTION_SPEED | PROCESS_POWER_THROTTLING_IGNORE_TIMER_RESOLUTION
+    PowerThrottling.StateMask = 0; // Desactivar ambas restricciones
+
+    // 4 = ProcessPowerThrottling
+    SetProcessInformation(
+        GetCurrentProcess(),
+        (PROCESS_INFORMATION_CLASS)4,
+        &PowerThrottling,
+        sizeof(PowerThrottling)
+    );
+}
+
 static void ApplyGlobalTimerResolution() {
+    DisablePowerThrottling();
     HMODULE hNtDll = GetModuleHandleW(L"ntdll.dll");
     if (hNtDll) {
         PFN_NtSetTimerResolution pfnNtSetTimerResolution = 
@@ -558,23 +834,27 @@ static void ApplyGlobalTimerResolution() {
             // 5000 = 0.5ms (la resolucion maxima suportada por Windows)
             pfnNtSetTimerResolution(5000, TRUE, &currentRes);
 #if DEBUG_MODE
-            printf(">>> Timer Resolution Kernel fijado a 0.5ms\n\n");
+            DBG(">>> Timer Resolution Kernel fijado a 0.5ms\n\n");
 #endif
         }
     }
 }
+
 
 //  PUNTO DE ENTRADA
 // ==============================================================
 int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine, int nCmdShow) {
 
 #if DEBUG_MODE
-    AllocConsole();
-    freopen("CONOUT$", "w", stdout);
-    SetConsoleTitleA("RS RAM Optimizer - DEBUG MODE");
-    printf("=== RS RAM Optimizer v2.0 - MODO DEBUG ===\n");
-    printf("Esta ventana muestra el funcionamiento interno.\n");
-    printf("Cambiar DEBUG_MODE a 0 en el codigo para produccion.\n\n");
+    {
+        FILE* f = fopen("C:\\Users\\WinterOS\\Desktop\\Programacion\\OptimizacionExe\\rs_ram_optimizer_debug.log", "w");
+        if (f) {
+            fprintf(f, "=== RS RAM Optimizer v1.C - MODO DEBUG ===\n");
+            fprintf(f, "Este archivo muestra el funcionamiento interno en tiempo real.\n");
+            fprintf(f, "Cambiar DEBUG_MODE a 0 en el codigo para produccion.\n\n\n");
+            fclose(f);
+        }
+    }
 #endif
 
     // 1. Terminar instancias anteriores
@@ -639,7 +919,7 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine
     if (g_nid.hIcon == NULL)
         g_nid.hIcon = LoadIcon(NULL, IDI_APPLICATION);
 
-    lstrcpyW(g_nid.szTip, L"RS RAM Optimizer v1.B");
+    lstrcpyW(g_nid.szTip, L"RS RAM Optimizer v1.C");
     Shell_NotifyIconW(NIM_ADD, &g_nid);
 
     DBG("Icono de bandeja creado. Intervalo: %d seg\n\n", OPTIMIZE_INTERVAL / 1000);
@@ -651,7 +931,7 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine
     }
 
 #if DEBUG_MODE
-    FreeConsole();
+    DBG("=== MODO DEBUG FINALIZADO ===\n");
 #endif
     CloseHandle(hMutex);
     return 0;

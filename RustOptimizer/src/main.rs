@@ -154,6 +154,67 @@ fn get_active_adapters() -> Vec<String> {
     .collect()
 }
 
+fn is_admin() -> bool {
+    #[cfg(windows)]
+    {
+        #[link(name = "shell32")]
+        extern "system" {
+            fn IsUserAnAdmin() -> i32;
+        }
+        unsafe { IsUserAnAdmin() != 0 }
+    }
+    #[cfg(not(windows))]
+    true
+}
+
+fn run_as_admin() -> bool {
+    #[cfg(windows)]
+    {
+        use std::os::windows::ffi::OsStrExt;
+        use std::ptr;
+
+        #[link(name = "shell32")]
+        extern "system" {
+            fn ShellExecuteW(
+                hwnd: *mut std::ffi::c_void,
+                lpOperation: *const u16,
+                lpFile: *const u16,
+                lpParameters: *const u16,
+                lpDirectory: *const u16,
+                nShowCmd: i32,
+            ) -> *mut std::ffi::c_void;
+        }
+
+        let self_exe = match std::env::current_exe() {
+            Ok(path) => path,
+            Err(_) => return false,
+        };
+
+        let operation: Vec<u16> = std::ffi::OsStr::new("runas").encode_wide().chain(Some(0)).collect();
+        let file: Vec<u16> = self_exe.as_os_str().encode_wide().chain(Some(0)).collect();
+
+        // Pass original arguments
+        let args: Vec<String> = std::env::args().skip(1).collect();
+        let parameters_str = args.join(" ");
+        let parameters: Vec<u16> = std::ffi::OsStr::new(&parameters_str).encode_wide().chain(Some(0)).collect();
+
+        let result = unsafe {
+            ShellExecuteW(
+                ptr::null_mut(),
+                operation.as_ptr(),
+                file.as_ptr(),
+                parameters.as_ptr(),
+                ptr::null(),
+                1, // SW_SHOWNORMAL
+            )
+        };
+
+        (result as usize) > 32
+    }
+    #[cfg(not(windows))]
+    true
+}
+
 // ═══════════════════════════════════════════════════════════════════════════
 //  MAIN
 // ═══════════════════════════════════════════════════════════════════════════
@@ -162,9 +223,34 @@ fn main() {
     #[cfg(windows)]
     enable_virtual_terminal_processing();
 
+    if !is_admin() {
+        set_color_red();
+        println!("======================================================");
+        println!("  [ ADVERTENCIA ] Este programa requiere permisos");
+        println!("  de Administrador para optimizar el sistema.");
+        println!("  Solicitando permisos de Administrador...");
+        println!("======================================================");
+        reset_color();
+
+        if run_as_admin() {
+            // Relaunch was successful, exit current instance
+            return;
+        } else {
+            set_color_red();
+            println!("\n  [ ERROR ] No se concedieron permisos de Administrador.");
+            println!("  Por favor, haz clic derecho sobre el programa y elige");
+            println!("  'Ejecutar como Administrador'.");
+            println!("\n  Presiona Enter para salir...");
+            reset_color();
+            let mut input = String::new();
+            let _ = std::io::stdin().read_line(&mut input);
+            return;
+        }
+    }
+
     set_color_cyan();
     println!("======================================================");
-    println!("       RS Optimizer ULTIMATE v2.0                      ");
+    println!("       RS Optimizer v1.C                               ");
     println!("       by RickStyles                                   ");
     println!("======================================================");
     reset_color();
@@ -173,7 +259,7 @@ fn main() {
     println!("\n[1/8] Optimizando parametros globales de Loopback...");
     optimize_loopback();
 
-    // ── Paso 2: Algoritmo de congestion TCP (BBR/BBR2) ─────────────────
+    // ── Paso 2: Algoritmo de congestion TCP (CTCP) ─────────────────────
     println!("\n[2/8] Configurando algoritmo de congestion TCP...");
     apply_congestion_providers();
 
@@ -248,7 +334,7 @@ fn optimize_loopback() {
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
-//  PASO 2: Congestion Providers (BBR / BBR2)
+//  PASO 2: Congestion Providers (CTCP)
 // ═══════════════════════════════════════════════════════════════════════════
 
 fn apply_congestion_providers() {
@@ -286,22 +372,14 @@ fn apply_congestion_providers() {
 
     let mut success_count = 0;
     for profile in &profiles {
-        let desc = format!("CongestionProvider -> BBR/BBR2 [{}]", profile);
+        let desc = format!("CongestionProvider -> CTCP [{}]", profile);
         let cmds = vec![
             format!(
-                "netsh int tcp set supplemental template={} congestionprovider=bbr2",
+                "netsh int tcp set supplemental template={} congestionprovider=ctcp",
                 profile
             ),
             format!(
-                "netsh int tcp set supplemental template={} congestionprovider=bbr",
-                profile
-            ),
-            format!(
-                "Set-NetTCPSetting -SettingName '{}' -CongestionProvider BBR2 -ErrorAction Stop",
-                profile
-            ),
-            format!(
-                "Set-NetTCPSetting -SettingName '{}' -CongestionProvider BBR -ErrorAction Stop",
+                "Set-NetTCPSetting -SettingName '{}' -CongestionProvider CTCP -ErrorAction Stop",
                 profile
             ),
         ];
@@ -322,7 +400,7 @@ fn apply_congestion_providers() {
 
     set_color_green();
     println!(
-        "  >> Resumen: {}/{} perfiles actualizados a BBR/BBR2",
+        "  >> Resumen: {}/{} perfiles actualizados a CTCP",
         success_count,
         profiles.len()
     );
@@ -650,23 +728,32 @@ fn apply_nic_advanced_tweaks() {
 // ═══════════════════════════════════════════════════════════════════════════
 
 fn apply_firewall_rules() {
-    let fw_cmds: Vec<(&str, &str)> = vec![
+    let fw_cmds: Vec<(&str, &str, &str)> = vec![
         (
+            "Block DiagTrack",
             "Bloqueando DiagTrack (Outbound)...",
             "netsh advfirewall firewall add rule name=\"Block DiagTrack\" dir=out action=block service=DiagTrack",
         ),
         (
+            "Block WerSvc",
             "Bloqueando WerSvc (Outbound)...",
             "netsh advfirewall firewall add rule name=\"Block WerSvc\" dir=out action=block service=WerSvc",
         ),
         (
+            "Block dmwappushservice",
             "Bloqueando dmwappushservice (Outbound)...",
             "netsh advfirewall firewall add rule name=\"Block dmwappushservice\" dir=out action=block service=dmwappushservice",
         ),
     ];
 
-    for (desc, cmd) in &fw_cmds {
-        let ok = run_powershell_command(cmd).is_ok();
+    for (name, desc, add_cmd) in &fw_cmds {
+        // Primero eliminamos cualquier regla previa con este nombre para evitar duplicados.
+        // Ignoramos el error en caso de que la regla no exista previamente en el sistema.
+        let del_cmd = format!("netsh advfirewall firewall delete rule name=\"{}\"", name);
+        let _ = run_powershell_command(&del_cmd);
+
+        // Ahora agregamos la nueva regla.
+        let ok = run_powershell_command(add_cmd).is_ok();
         print_status_line(desc, ok, false);
     }
 }
@@ -890,6 +977,25 @@ try {{
 }} catch {{
     Add-Log 'WARN' 'MMCSS' 'No se pudo ajustar GPU Priority' 'WARN'
 }}
+
+# ── Global Timer Resolution & Power Throttling Windows 10/11 ──────────────
+try {{
+    $kernelPath = 'HKLM:\SYSTEM\CurrentControlSet\Control\Session Manager\kernel'
+    if (!(Test-Path $kernelPath)) {{ New-Item -Path $kernelPath -Force | Out-Null }}
+    New-ItemProperty -Path $kernelPath -Name 'GlobalTimerResolutionRequests' -Value 1 -PropertyType DWord -Force | Out-Null
+    Add-Log 'INFO' 'BCD' 'GlobalTimerResolutionRequests = 1'
+}} catch {{
+    Add-Log 'WARN' 'BCD' 'No se pudo aplicar GlobalTimerResolutionRequests' 'WARN'
+}}
+
+try {{
+    $powerPath = 'HKLM:\SYSTEM\CurrentControlSet\Control\Power\PowerThrottling'
+    if (!(Test-Path $powerPath)) {{ New-Item -Path $powerPath -Force | Out-Null }}
+    New-ItemProperty -Path $powerPath -Name 'PowerThrottlingOff' -Value 1 -PropertyType DWord -Force | Out-Null
+    Add-Log 'INFO' 'POWER' 'PowerThrottlingOff = 1'
+}} catch {{
+    Add-Log 'WARN' 'POWER' 'No se pudo desactivar Power Throttling' 'WARN'
+}}
 "#,
         log_path = log_path_ps
     );
@@ -1028,36 +1134,71 @@ fn install_and_run_ram_optimizer() {
             println!("[ OK ]");
             reset_color();
 
-            print!("  Configurando inicio con Windows... ");
+            print!("  Configurando inicio con Windows (Tarea Programada)... ");
             io::stdout().flush().unwrap();
-            let reg_cmd = format!(
-                "Set-ItemProperty -Path HKCU:\\Software\\Microsoft\\Windows\\CurrentVersion\\Run -Name 'RSRAMOptimizer' -Value '\"{}\"' -Force",
+
+            // 1. Limpieza absoluta de cualquier rastro previo para evitar inicios duplicados o conflictos
+            let cleanup_cmds = vec![
+                "Remove-ItemProperty -Path HKCU:\\Software\\Microsoft\\Windows\\CurrentVersion\\Run -Name 'RSRAMOptimizer' -ErrorAction SilentlyContinue",
+                "Remove-ItemProperty -Path HKLM:\\Software\\Microsoft\\Windows\\CurrentVersion\\Run -Name 'RSRAMOptimizer' -ErrorAction SilentlyContinue",
+                "Unregister-ScheduledTask -TaskName 'RSRAMOptimizer' -Confirm:$false -ErrorAction SilentlyContinue",
+                "schtasks /delete /tn \"RSRAMOptimizer\" /f"
+            ];
+            for cmd in cleanup_cmds {
+                let _ = run_powershell_command(cmd);
+            }
+
+            // 2. Crear la tarea programada con privilegios elevados (RunLevel Highest), UserId explícito y sin límite de tiempo
+            let task_cmd = format!(
+                "$act = New-ScheduledTaskAction -Execute '{}'; \
+                 $trig = New-ScheduledTaskTrigger -AtLogon; \
+                 $sett = New-ScheduledTaskSettingsSet -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries -ExecutionTimeLimit ([System.TimeSpan]::Zero); \
+                 $prin = New-ScheduledTaskPrincipal -UserId $env:USERNAME -RunLevel Highest; \
+                 Register-ScheduledTask -TaskName 'RSRAMOptimizer' -Action $act -Trigger $trig -Settings $sett -Principal $prin -Force",
                 target_exe.display()
             );
-            if run_powershell_command(&reg_cmd).is_ok() {
+
+            if run_powershell_command(&task_cmd).is_ok() {
                 set_color_green();
                 println!("[ OK ]");
                 reset_color();
             } else {
                 set_color_yellow();
-                println!("[ ADVERTENCIA ]");
+                println!("[ ADVERTENCIA: Se usara schtasks como respaldo ]");
                 reset_color();
+
+                // Respaldo universal con schtasks.exe utilizando comillas simples para la ruta con espacios
+                let schtasks_cmd = format!(
+                    "schtasks /create /tn \"RSRAMOptimizer\" /tr \"'{}'\" /sc onlogon /rl highest /f",
+                    target_exe.display()
+                );
+                let _ = run_powershell_command(&schtasks_cmd);
             }
 
             print!("  Iniciando optimizador en 2do plano... ");
             io::stdout().flush().unwrap();
-            if Command::new(&target_exe)
-                .creation_flags(CREATE_NO_WINDOW)
-                .spawn()
-                .is_ok()
-            {
+
+            // Iniciar la tarea programada directamente para asegurar privilegios elevados de inmediato
+            let start_cmd = "Start-ScheduledTask -TaskName 'RSRAMOptimizer'";
+            if run_powershell_command(start_cmd).is_ok() {
                 set_color_green();
                 println!("[ OK ]");
                 reset_color();
             } else {
-                set_color_yellow();
-                println!("[ ERROR ]");
-                reset_color();
+                // Caída si falla la tarea programada
+                if Command::new(&target_exe)
+                    .creation_flags(CREATE_NO_WINDOW)
+                    .spawn()
+                    .is_ok()
+                {
+                    set_color_green();
+                    println!("[ OK ]");
+                    reset_color();
+                } else {
+                    set_color_red();
+                    println!("[ ERROR ]");
+                    reset_color();
+                }
             }
         } else {
             set_color_red();
