@@ -1,234 +1,980 @@
-use std::process::Command;
-use std::os::windows::process::CommandExt;
-use std::io::{self, Write};
-use std::fs;
-use std::path::PathBuf;
 use std::env;
+use std::fs;
+use std::io::{self, Write};
+use std::os::windows::process::CommandExt;
+use std::path::PathBuf;
+use std::process::Command;
 use std::thread;
 use std::time::Duration;
 
 const CREATE_NO_WINDOW: u32 = 0x08000000;
 
-// Embed the regedit file and the executable
 const REG_RESOURCE: &[u8] = include_bytes!(concat!(env!("OUT_DIR"), "/embedded.reg"));
 const EXE_RESOURCE: &[u8] = include_bytes!("../../RamOptimizer/RS RAM Optimizer.exe");
 
-// Helper to run powershell commands silently
-fn run_powershell(command: &str) -> Result<String, String> {
+// ═══════════════════════════════════════════════════════════════════════════
+//  UTILIDADES: PowerShell
+// ═══════════════════════════════════════════════════════════════════════════
+
+fn run_powershell_command(command: &str) -> Result<String, String> {
     let output = Command::new("powershell")
-        .args(&["-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-Command", command])
+        .args(&[
+            "-NoProfile",
+            "-NonInteractive",
+            "-ExecutionPolicy",
+            "Bypass",
+            "-Command",
+            command,
+        ])
         .creation_flags(CREATE_NO_WINDOW)
         .output()
-        .map_err(|e| format!("PowerShell error: {}", e))?;
+        .map_err(|e| format!("PowerShell error: {:?}", e))?;
 
     let stdout = String::from_utf8_lossy(&output.stdout).trim().to_string();
-    
+    let stderr = String::from_utf8_lossy(&output.stderr).trim().to_string();
+
     if !output.status.success() {
-        return Err("PowerShell exit code non-zero".to_string());
+        let msg = if !stderr.is_empty() { stderr } else { stdout };
+        return Err(format!("PowerShell exit code non-zero: {}", msg));
     }
 
     Ok(stdout)
 }
 
-fn set_color_green() { print!("\x1b[32m"); }
-fn set_color_yellow() { print!("\x1b[33m"); }
-fn set_color_cyan() { print!("\x1b[36m"); }
-fn set_color_dark_gray() { print!("\x1b[90m"); }
-fn set_color_red() { print!("\x1b[31m"); }
-fn reset_color() { print!("\x1b[0m"); }
+// ═══════════════════════════════════════════════════════════════════════════
+//  UTILIDADES: Colores ANSI
+// ═══════════════════════════════════════════════════════════════════════════
+
+fn set_color_green() {
+    print!("\x1b[32m");
+}
+fn set_color_yellow() {
+    print!("\x1b[33m");
+}
+fn set_color_cyan() {
+    print!("\x1b[36m");
+}
+fn set_color_dark_gray() {
+    print!("\x1b[90m");
+}
+fn set_color_red() {
+    print!("\x1b[31m");
+}
+fn reset_color() {
+    print!("\x1b[0m");
+}
 
 #[cfg(windows)]
 fn enable_virtual_terminal_processing() {
-    type HANDLE = *mut std::ffi::c_void;
-    type DWORD = u32;
-    const STD_OUTPUT_HANDLE: u32 = 0xFFFFFFF5; // -11i32 as u32
-    const ENABLE_VIRTUAL_TERMINAL_PROCESSING: DWORD = 0x0004;
+    type Handle = *mut std::ffi::c_void;
+    type Dword = u32;
+    const STD_OUTPUT_HANDLE: u32 = 0xFFFFFFF5;
+    const ENABLE_VIRTUAL_TERMINAL_PROCESSING: Dword = 0x0004;
 
     extern "system" {
-        fn GetStdHandle(nStdHandle: u32) -> HANDLE;
-        fn GetConsoleMode(hConsoleHandle: HANDLE, lpMode: *mut DWORD) -> i32;
-        fn SetConsoleMode(hConsoleHandle: HANDLE, dwMode: DWORD) -> i32;
+        fn GetStdHandle(nStdHandle: u32) -> Handle;
+        fn GetConsoleMode(hConsoleHandle: Handle, lpMode: *mut Dword) -> i32;
+        fn SetConsoleMode(hConsoleHandle: Handle, dwMode: Dword) -> i32;
     }
 
     unsafe {
         let handle = GetStdHandle(STD_OUTPUT_HANDLE);
-        let mut mode: DWORD = 0;
+        let mut mode: Dword = 0;
         if GetConsoleMode(handle, &mut mode) != 0 {
-            SetConsoleMode(handle, mode | ENABLE_VIRTUAL_TERMINAL_PROCESSING);
+            let _ = SetConsoleMode(handle, mode | ENABLE_VIRTUAL_TERMINAL_PROCESSING);
         }
     }
 }
 
+fn print_status_line(desc: &str, ok: bool, warn: bool) {
+    print!("  {} ", desc);
+    for _ in 0..72_usize.saturating_sub(2 + desc.len()) {
+        print!(" ");
+    }
+    io::stdout().flush().unwrap();
+
+    if ok {
+        set_color_green();
+        println!("[ OK ]");
+    } else if warn {
+        set_color_yellow();
+        println!("[ ADVERTENCIA ]");
+    } else {
+        set_color_dark_gray();
+        println!("[ NO APLICADO ]");
+    }
+    reset_color();
+}
+
+/// Intenta obtener el valor máximo válido de una propiedad avanzada del NIC.
+/// Devuelve Some(max_value) si la propiedad existe y tiene valores válidos.
+fn get_nic_property_max(adapter: &str, keyword: &str) -> Option<u32> {
+    let cmd = format!(
+        "try {{ $p = Get-NetAdapterAdvancedProperty -Name '{}' -RegistryKeyword '{}' -ErrorAction Stop; \
+         $vals = $p.ValidDisplayValues | ForEach-Object {{ [uint32]$_ }} | Where-Object {{ $_ -gt 0 }}; \
+         if ($vals) {{ ($vals | Measure-Object -Maximum).Maximum }} else {{ 0 }} \
+         }} catch {{ 0 }}",
+        adapter, keyword
+    );
+    run_powershell_command(&cmd)
+        .ok()
+        .and_then(|s| s.trim().parse::<u32>().ok())
+        .filter(|&v| v > 0)
+}
+
+/// Intenta establecer una propiedad avanzada del NIC. Devuelve true si tuvo éxito.
+fn set_nic_property(adapter: &str, keyword: &str, value: u32) -> bool {
+    let cmd = format!(
+        "Set-NetAdapterAdvancedProperty -Name '{}' -RegistryKeyword '{}' -RegistryValue {} -ErrorAction Stop",
+        adapter, keyword, value
+    );
+    run_powershell_command(&cmd).is_ok()
+}
+
+/// Intenta establecer una propiedad usando múltiples posibles nombres de keyword.
+/// Devuelve true si alguno tuvo éxito.
+fn set_nic_property_multi(adapter: &str, keywords: &[&str], value: u32) -> bool {
+    for kw in keywords {
+        if set_nic_property(adapter, kw, value) {
+            return true;
+        }
+    }
+    false
+}
+
+/// Obtiene la lista de adaptadores de red activos.
+fn get_active_adapters() -> Vec<String> {
+    run_powershell_command(
+        "Get-NetAdapter | Where-Object Status -eq 'Up' | Select-Object -ExpandProperty Name",
+    )
+    .unwrap_or_default()
+    .lines()
+    .map(|s| s.trim().to_string())
+    .filter(|s| !s.is_empty())
+    .collect()
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+//  MAIN
+// ═══════════════════════════════════════════════════════════════════════════
+
 fn main() {
-    // Enable ANSI colors for Windows 10/11 properly
     #[cfg(windows)]
     enable_virtual_terminal_processing();
 
-
     set_color_cyan();
-    println!("+--------------------------------------------------+");
-    println!("|                  RS Optimizer                    |");
-    println!("|                by RickStyles                     |");
-    println!("+--------------------------------------------------+");
+    println!("======================================================");
+    println!("       RS Optimizer ULTIMATE v2.0                      ");
+    println!("       by RickStyles                                   ");
+    println!("======================================================");
     reset_color();
 
-    println!("Optimizando parametros globales de Loopback...");
-    if run_powershell("netsh int ipv4 set global loopbacklargemtu=disable; netsh int ipv6 set global loopbacklargemtu=disable").is_ok() {
-        set_color_green();
-        println!("[ OK ] Parametros de compatibilidad aplicados.");
-        reset_color();
-    } else {
-        set_color_yellow();
-        println!("(!) No se pudieron aplicar ajustes de loopback.");
-        reset_color();
-    }
+    // ── Paso 1: Loopback MTU ────────────────────────────────────────────
+    println!("\n[1/8] Optimizando parametros globales de Loopback...");
+    optimize_loopback();
 
-    println!("\nDetectando perfiles TCP disponibles...");
-    let profiles_output = run_powershell("Get-NetTCPSetting | Select-Object -ExpandProperty SettingName -Unique").unwrap_or_default();
-    let mut profiles: Vec<String> = profiles_output.lines().map(|s| s.trim().to_string()).filter(|s| !s.is_empty()).collect();
+    // ── Paso 2: Algoritmo de congestion TCP (BBR/BBR2) ─────────────────
+    println!("\n[2/8] Configurando algoritmo de congestion TCP...");
+    apply_congestion_providers();
+
+    // ── Paso 3: Parametros TCP globales ─────────────────────────────────
+    println!("\n[3/8] Ajustando parametros TCP globales...");
+    apply_tcp_global_optimizations();
+
+    // ── Paso 4: Offloads de adaptadores (RSC, LSO, RSS) ────────────────
+    println!("\n[4/8] Optimizando offloads de adaptadores de red...");
+    apply_adapter_offload_tweaks();
+
+    // ── Paso 5: Propiedades avanzadas de NIC (buffers, IRQ, EEE, etc.) ─
+    println!("\n[5/8] Ajustando propiedades avanzadas de NIC...");
+    apply_nic_advanced_tweaks();
+
+    // ── Paso 6: Firewall (bloqueo de telemetria) ────────────────────────
+    println!("\n[6/8] Configurando Firewall (bloqueo de telemetria)...");
+    apply_firewall_rules();
+
+    // ── Paso 7: Hardware (MSI, BCD, CPU, DWM, MMCSS, IRQ affinity) ────
+    println!("\n[7/8] Detectando y optimizando hardware...");
+    apply_dynamic_hardware_tweaks();
+
+    // ── Paso 8: Registro + RAM Optimizer ────────────────────────────────
+    println!("\n[8/8] Aplicando registro base e instalando RAM Optimizer...");
+    apply_embedded_registry();
+    install_and_run_ram_optimizer();
+
+    // ── Estado final ────────────────────────────────────────────────────
+    println!("\n======================================================");
+    println!("Estado Final de la Configuracion:");
+    println!("------------------------------------------------------");
+
+    let final_tcp = run_powershell_command(
+        "Get-NetTCPSetting -SettingName Internet | Select-Object SettingName, CongestionProvider, AutoTuningLevelGroup | Format-Table -AutoSize | Out-String",
+    )
+    .unwrap_or_default();
+    println!("{}", final_tcp.trim());
+
+    let final_nic = run_powershell_command(
+        "Get-NetAdapter | Where-Object Status -eq 'Up' | Select-Object Name, LinkSpeed, MacAddress | Format-Table -AutoSize | Out-String",
+    )
+    .unwrap_or_default();
+    println!("Adaptadores activos:");
+    println!("{}", final_nic.trim());
+
+    let final_tcp_global = run_powershell_command(
+        "netsh int tcp show global",
+    )
+    .unwrap_or_default();
+    println!("Parametros TCP globales:");
+    println!("{}", final_tcp_global.trim());
+
+    println!("======================================================");
+    reset_color();
+
+    println!("\nPresiona [Enter] para cerrar...");
+    let mut input = String::new();
+    let _ = io::stdin().read_line(&mut input);
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+//  PASO 1: Loopback
+// ═══════════════════════════════════════════════════════════════════════════
+
+fn optimize_loopback() {
+    let ok = run_powershell_command(
+        "netsh int ipv4 set global loopbacklargemtu=disable; netsh int ipv6 set global loopbacklargemtu=disable",
+    )
+    .is_ok();
+    print_status_line("Loopback Large MTU deshabilitado (IPv4 + IPv6)", ok, !ok);
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+//  PASO 2: Congestion Providers (BBR / BBR2)
+// ═══════════════════════════════════════════════════════════════════════════
+
+fn apply_congestion_providers() {
+    let profiles_output = run_powershell_command(
+        "Get-NetTCPSetting | Select-Object -ExpandProperty SettingName -Unique",
+    )
+    .unwrap_or_default();
+
+    let mut profiles: Vec<String> = profiles_output
+        .lines()
+        .map(|s| s.trim().to_string())
+        .filter(|s| !s.is_empty())
+        .collect();
 
     if profiles.is_empty() {
-        profiles = vec!["Internet".to_string(), "Datacenter".to_string(), "Compat".to_string(), "InternetCustom".to_string(), "DatacenterCustom".to_string()];
-        set_color_yellow();
-        println!("(!) No se pudo leer la lista dinamica. Usando lista predefinida.");
-        reset_color();
+        profiles = vec![
+            "Internet".to_string(),
+            "Datacenter".to_string(),
+            "Compat".to_string(),
+            "InternetCustom".to_string(),
+            "DatacenterCustom".to_string(),
+        ];
+        print_status_line(
+            "Lectura dinamica de perfiles (usando lista predefinida)",
+            false,
+            true,
+        );
+    } else {
+        print_status_line(
+            &format!("{} perfiles TCP encontrados", profiles.len()),
+            true,
+            false,
+        );
     }
 
-    println!("Se encontraron {} perfiles. Iniciando optimizacion...\n", profiles.len());
     let mut success_count = 0;
-
     for profile in &profiles {
-        print!(" Configurando '{}'...", profile);
-        for _ in 0..(40_usize.saturating_sub(18 + profile.len())) { print!(" "); }
-        io::stdout().flush().unwrap();
-
-        let msgs = vec![
-            format!("netsh int tcp set supplemental template=\"{}\" congestionprovider=bbr2", profile),
-            format!("netsh int tcp set supplemental template=\"{}\" congestionprovider=bbr", profile),
-            format!("Set-NetTCPSetting -SettingName \"{}\" -CongestionProvider BBR -ErrorAction Stop", profile),
-            format!("Set-NetTCPSetting -SettingName \"{}\" -CongestionProvider BBR2 -ErrorAction Stop", profile),
+        let desc = format!("CongestionProvider -> BBR/BBR2 [{}]", profile);
+        let cmds = vec![
+            format!(
+                "netsh int tcp set supplemental template={} congestionprovider=bbr2",
+                profile
+            ),
+            format!(
+                "netsh int tcp set supplemental template={} congestionprovider=bbr",
+                profile
+            ),
+            format!(
+                "Set-NetTCPSetting -SettingName '{}' -CongestionProvider BBR2 -ErrorAction Stop",
+                profile
+            ),
+            format!(
+                "Set-NetTCPSetting -SettingName '{}' -CongestionProvider BBR -ErrorAction Stop",
+                profile
+            ),
         ];
 
         let mut success = false;
-        for cmd in msgs {
-            if run_powershell(&cmd).is_ok() {
+        for cmd in cmds {
+            if run_powershell_command(&cmd).is_ok() {
                 success = true;
                 break;
             }
         }
 
+        print_status_line(&desc, success, false);
         if success {
-            set_color_green();
-            println!("[ OK ]");
-            reset_color();
             success_count += 1;
-        } else {
-            set_color_dark_gray();
-            println!("[ OMITIDO / PROTEGIDO ]");
-            reset_color();
         }
     }
 
-    println!("\n----------------------------------------------------");
     set_color_green();
-    println!("Resumen: {} de {} perfiles actualizados a BBR.", success_count, profiles.len());
+    println!(
+        "  >> Resumen: {}/{} perfiles actualizados a BBR/BBR2",
+        success_count,
+        profiles.len()
+    );
     reset_color();
-
-    apply_advanced_optimizations();
-
-    println!("\n[Estado Final de la Configuracion]");
-    println!("(Muestra solo el perfil 'Internet' como referencia)");
-
-    let final_status = run_powershell("Get-NetTCPSetting -SettingName Internet | Select-Object SettingName, CongestionProvider | Format-Table -AutoSize | Out-String").unwrap_or_default();
-    println!("{}", final_status.trim());
-    println!("\n----------------------------------------------------");
-
-    println!("Buscando y aplicando configuraciones de registro...");
-    apply_embedded_registry();
-
-    println!("\n----------------------------------------------------");
-    println!("Instalando e Iniciando RS RAM Optimizer...");
-    install_and_run_ram_optimizer();
-
-    reset_color();
-    println!("\nPresiona Enter para cerrar...");
-    let mut input = String::new();
-    let _ = io::stdin().read_line(&mut input);
 }
 
-fn apply_advanced_optimizations() {
-    println!("\n----------------------------------------------------");
-    println!("Optimizando Adaptadores de Red (RSC / LSO) y TCP...");
+// ═══════════════════════════════════════════════════════════════════════════
+//  PASO 3: TCP Global (ampliado)
+// ═══════════════════════════════════════════════════════════════════════════
 
-    if let Ok(adapters_output) = run_powershell("Get-NetAdapter | Where-Object Status -eq 'Up' | Select-Object -ExpandProperty Name") {
-        let adapters: Vec<String> = adapters_output.lines().map(|s| s.trim().to_string()).filter(|s| !s.is_empty()).collect();
-        for adapter in adapters {
-            print!(" Configurando RSC en '{}'...", adapter);
-            for _ in 0..(50_usize.saturating_sub(23 + adapter.len())) { print!(" "); }
-            io::stdout().flush().unwrap();
-            
-            if run_powershell(&format!("Disable-NetAdapterRsc -Name \"{}\"", adapter)).is_ok() {
-                set_color_green();
-                println!("[ OK ]");
-                reset_color();
-            } else {
-                set_color_dark_gray();
-                println!("[ OMITIDO / NO SOPORTADO ]");
-                reset_color();
-            }
-
-            print!(" Configurando LSO en '{}'...", adapter);
-            for _ in 0..(50_usize.saturating_sub(23 + adapter.len())) { print!(" "); }
-            io::stdout().flush().unwrap();
-            
-            if run_powershell(&format!("Disable-NetAdapterLso -Name \"{}\"", adapter)).is_ok() {
-                set_color_green();
-                println!("[ OK ]");
-                reset_color();
-            } else {
-                set_color_dark_gray();
-                println!("[ OMITIDO / NO SOPORTADO ]");
-                reset_color();
-            }
-        }
-    } else {
-        set_color_yellow();
-        println!("(!) No se pudo obtener la lista de adaptadores.");
-        reset_color();
-    }
-
-    println!("\nAplicando Optimizaciones Globales TCP:");
-
-    let tcp_cmds = [
-        ("Desactivando ECN (Explicit Congestion)...", "netsh int tcp set global ecncapability=disabled"),
-        ("Desactivando Heuristica TCP...", "netsh int tcp set heuristics disabled"),
-        ("Ajustando AutoTuningLevel (Normal)...", "netsh int tcp set global autotuninglevel=normal"),
+fn apply_tcp_global_optimizations() {
+    let tcp_cmds: Vec<(&str, &str)> = vec![
+        (
+            "Desactivando ECN (Explicit Congestion Notification)...",
+            "netsh int tcp set global ecncapability=disabled",
+        ),
+        (
+            "Desactivando Heuristica TCP...",
+            "netsh int tcp set heuristics disabled",
+        ),
+        (
+            "Ajustando AutoTuningLevel (Normal)...",
+            "netsh int tcp set global autotuninglevel=normal",
+        ),
+        (
+            "Activando TCP Timestamps (mejor estimacion RTT)...",
+            "netsh int tcp set global timestamps=enabled",
+        ),
+        (
+            "Desactivando Chimney Offload (obsoleto)...",
+            "netsh int tcp set global chimney=disabled",
+        ),
+        (
+            "Desactivando Direct Cache Access...",
+            "netsh int tcp set global dca=disabled",
+        ),
+        (
+            "Ajustando Initial RTO a 2000ms...",
+            "netsh int tcp set global initialRto=2000",
+        ),
+        (
+            "Activando RSS global...",
+            "netsh int tcp set global rss=enabled",
+        ),
+        (
+            "Ajustando Max SYN Retransmissions a 8...",
+            "netsh int tcp set global maxsynretransmissions=8",
+        ),
+        (
+            "Desactivando resiliencia Non-SACK RST...",
+            "netsh int tcp set global nonsackrttresiliency=disabled",
+        ),
+        (
+            "Activando Caching de conexiones (TCPCache)...",
+            "netsh int tcp set global tcpcachingmode=enabled",
+        ),
     ];
 
-    for (desc, cmd) in tcp_cmds.iter() {
-        print!(" {}", desc);
-        for _ in 0..(50_usize.saturating_sub(1 + desc.len())) { print!(" "); }
-        io::stdout().flush().unwrap();
-        
-        if run_powershell(cmd).is_ok() {
-            set_color_green();
-            println!("[ OK ]");
-            reset_color();
-        } else {
-            set_color_dark_gray();
-            println!("[ OMITIDO / PROTEGIDO ]");
-            reset_color();
-        }
+    for (desc, cmd) in &tcp_cmds {
+        let ok = run_powershell_command(cmd).is_ok();
+        print_status_line(desc, ok, !ok);
+    }
+
+    // minrwnd no disponible en todas las versiones de Windows
+    let minrwnd_ok = run_powershell_command("netsh int tcp set global minrwnd=65535").is_ok();
+    print_status_line(
+        "Ajustando Min RWIN a 65535...",
+        minrwnd_ok,
+        !minrwnd_ok,
+    );
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+//  PASO 4: Offloads de adaptadores
+// ═══════════════════════════════════════════════════════════════════════════
+
+fn apply_adapter_offload_tweaks() {
+    let adapters = get_active_adapters();
+
+    if adapters.is_empty() {
+        print_status_line("No se encontraron adaptadores activos", false, true);
+        return;
+    }
+
+    print_status_line(
+        &format!("{} adaptadores activos detectados", adapters.len()),
+        true,
+        false,
+    );
+
+    for adapter in &adapters {
+        // RSC (Receive Segment Coalescing) → OFF
+        let rsc_ok = run_powershell_command(&format!(
+            "Disable-NetAdapterRsc -Name '{}'",
+            adapter
+        ))
+        .is_ok();
+        print_status_line(
+            &format!("RSC deshabilitado [{}]", adapter),
+            rsc_ok,
+            !rsc_ok,
+        );
+
+        // LSO (Large Send Offload) → OFF
+        let lso_ok = run_powershell_command(&format!(
+            "Disable-NetAdapterLso -Name '{}'",
+            adapter
+        ))
+        .is_ok();
+        print_status_line(
+            &format!("LSO deshabilitado [{}]", adapter),
+            lso_ok,
+            !lso_ok,
+        );
+
+        // LROv2 IPv4/IPv6 → OFF
+        let lro_cmd = format!(
+            "Set-NetAdapterAdvancedProperty -Name '{}' -RegistryKeyword '*LsoV2IPv4' -RegistryValue 0 -ErrorAction SilentlyContinue; \
+             Set-NetAdapterAdvancedProperty -Name '{}' -RegistryKeyword '*LsoV2IPv6' -RegistryValue 0 -ErrorAction SilentlyContinue",
+            adapter, adapter
+        );
+        let _ = run_powershell_command(&lro_cmd);
+        print_status_line(
+            &format!("LROv2 deshabilitado [{}]", adapter),
+            true,
+            false,
+        );
+
+        // RSS (Receive Side Scaling) → ON
+        let rss_ok = run_powershell_command(&format!(
+            "Enable-NetAdapterRss -Name '{}'",
+            adapter
+        ))
+        .is_ok();
+        print_status_line(
+            &format!("RSS habilitado [{}]", adapter),
+            rss_ok,
+            !rss_ok,
+        );
     }
 }
 
+// ═══════════════════════════════════════════════════════════════════════════
+//  PASO 5: Propiedades avanzadas de NIC (NUEVO)
+// ═══════════════════════════════════════════════════════════════════════════
+
+fn apply_nic_advanced_tweaks() {
+    let adapters = get_active_adapters();
+
+    if adapters.is_empty() {
+        print_status_line("No se encontraron adaptadores para ajustar", false, true);
+        return;
+    }
+
+    for adapter in &adapters {
+        println!("  ── Adaptador: {} ──", adapter);
+
+        // ── Receive Buffers → MAX ───────────────────────────────────────
+        if let Some(max_val) = get_nic_property_max(adapter, "*ReceiveBuffers") {
+            let ok = set_nic_property(adapter, "*ReceiveBuffers", max_val);
+            print_status_line(
+                &format!("Receive Buffers = {} [{}]", max_val, adapter),
+                ok,
+                !ok,
+            );
+        } else {
+            print_status_line(
+                &format!("Receive Buffers [{}] (no expuesto)", adapter),
+                false,
+                true,
+            );
+        }
+
+        // ── Transmit Buffers → MAX ──────────────────────────────────────
+        if let Some(max_val) = get_nic_property_max(adapter, "*TransmitBuffers") {
+            let ok = set_nic_property(adapter, "*TransmitBuffers", max_val);
+            print_status_line(
+                &format!("Transmit Buffers = {} [{}]", max_val, adapter),
+                ok,
+                !ok,
+            );
+        } else {
+            print_status_line(
+                &format!("Transmit Buffers [{}] (no expuesto)", adapter),
+                false,
+                true,
+            );
+        }
+
+        // ── Interrupt Moderation → OFF ──────────────────────────────────
+        //    Desactivar la moderacion de interrupciones reduce latencia
+        //    al precio de un ligero aumento de uso de CPU.
+        let irq_ok = set_nic_property(adapter, "*InterruptModeration", 0);
+        print_status_line(
+            &format!("Interrupt Moderation OFF [{}]", adapter),
+            irq_ok,
+            !irq_ok,
+        );
+
+        // ── Flow Control → Disabled ─────────────────────────────────────
+        //    Flow control (802.3x) puede causar pausas que se acumulan
+        //    y generan micro-perdidas. Desactivar en redes locales sanas.
+        let flow_ok = set_nic_property(adapter, "*FlowControl", 0);
+        print_status_line(
+            &format!("Flow Control deshabilitado [{}]", adapter),
+            flow_ok,
+            !flow_ok,
+        );
+
+        // ── Energy Efficient Ethernet (EEE) → OFF ──────────────────────
+        //    EEE introduce micro-suspensiones del enlace que pueden
+        //    causar perdida puntual de paquetes.
+        let eee_ok = set_nic_property_multi(
+            adapter,
+            &["*EEE", "*EnableGreenEthernet", "*AdvancedEEE"],
+            0,
+        );
+        print_status_line(
+            &format!("EEE / Green Ethernet OFF [{}]", adapter),
+            eee_ok,
+            !eee_ok,
+        );
+
+        // ── RSS Queues → MAX ────────────────────────────────────────────
+        //    Mas colas RSS distribuyen mejor el procesamiento entre nucleos.
+        if let Some(max_queues) = get_nic_property_max(adapter, "*NumRssQueues") {
+            let ok = set_nic_property(adapter, "*NumRssQueues", max_queues);
+            print_status_line(
+                &format!("RSS Queues = {} [{}]", max_queues, adapter),
+                ok,
+                !ok,
+            );
+        } else {
+            print_status_line(
+                &format!("RSS Queues [{}] (no expuesto)", adapter),
+                false,
+                true,
+            );
+        }
+
+        // ── Wake on Magic Packet → OFF ──────────────────────────────────
+        let wake_mp_ok = run_powershell_command(&format!(
+            "Set-NetAdapterPowerManagement -Name '{}' -WakeOnMagicPacket Disabled -ErrorAction Stop",
+            adapter
+        ))
+        .is_ok();
+        print_status_line(
+            &format!("Wake on Magic Packet OFF [{}]", adapter),
+            wake_mp_ok,
+            !wake_mp_ok,
+        );
+
+        // ── Wake on Pattern → OFF ───────────────────────────────────────
+        let wake_pat_ok = run_powershell_command(&format!(
+            "Set-NetAdapterPowerManagement -Name '{}' -WakeOnPattern Disabled -ErrorAction Stop",
+            adapter
+        ))
+        .is_ok();
+        print_status_line(
+            &format!("Wake on Pattern OFF [{}]", adapter),
+            wake_pat_ok,
+            !wake_pat_ok,
+        );
+
+        // ── ARP Offload → OFF ───────────────────────────────────────────
+        let arp_ok = set_nic_property(adapter, "*PMARPOffload", 0);
+        print_status_line(
+            &format!("ARP Offload OFF [{}]", adapter),
+            arp_ok,
+            !arp_ok,
+        );
+
+        // ── NS Offload → OFF ────────────────────────────────────────────
+        let ns_ok = set_nic_property(adapter, "*PMNSOffload", 0);
+        print_status_line(
+            &format!("NS Offload OFF [{}]", adapter),
+            ns_ok,
+            !ns_ok,
+        );
+
+        // ── Disable Nagle per-interface (TcpAckFrequency=1, TCPNoDelay=1)
+        //    Nagle agrupa paquetes pequenos; desactivarlo reduce latencia
+        //    y evita retransmisiones innecesarias en trafico interactivo.
+        let nagle_cmd = format!(
+            r#"try {{
+                $guid = (Get-NetAdapter -Name '{}' | Select-Object -ExpandProperty InterfaceGuid)
+                $path = "HKLM:\SYSTEM\CurrentControlSet\Services\Tcpip\Parameters\Interfaces\$guid"
+                if (Test-Path $path) {{
+                    New-ItemProperty -Path $path -Name 'TcpAckFrequency' -Value 1 -PropertyType DWord -Force | Out-Null
+                    New-ItemProperty -Path $path -Name 'TCPNoDelay' -Value 1 -PropertyType DWord -Force | Out-Null
+                    New-ItemProperty -Path $path -Name 'TcpDelAckTicks' -Value 0 -PropertyType DWord -Force | Out-Null
+                    Write-Output 'OK'
+                }} else {{ Write-Output 'SKIP' }}
+            }} catch {{ Write-Output 'ERR' }}"#,
+            adapter
+        );
+        let nagle_result = run_powershell_command(&nagle_cmd).unwrap_or_default();
+        let nagle_ok = nagle_result.contains("OK");
+        print_status_line(
+            &format!("Nagle OFF (TcpAckFrequency=1) [{}]", adapter),
+            nagle_ok,
+            !nagle_ok,
+        );
+
+        println!();
+    }
+
+    // ── Nagle global (parametros TCP del registro) ──────────────────────
+    let global_nagle = run_powershell_command(
+        r#"New-ItemProperty -Path 'HKLM:\SYSTEM\CurrentControlSet\Services\Tcpip\Parameters' -Name 'TcpAckFrequency' -Value 1 -PropertyType DWord -Force -ErrorAction SilentlyContinue | Out-Null;
+           New-ItemProperty -Path 'HKLM:\SYSTEM\CurrentControlSet\Services\Tcpip\Parameters' -Name 'TCPNoDelay' -Value 1 -PropertyType DWord -Force -ErrorAction SilentlyContinue | Out-Null;
+           New-ItemProperty -Path 'HKLM:\SYSTEM\CurrentControlSet\Services\Tcpip\Parameters' -Name 'TcpDelAckTicks' -Value 0 -PropertyType DWord -Force -ErrorAction SilentlyContinue | Out-Null;
+           Write-Output 'OK'"#,
+    )
+    .unwrap_or_default();
+    print_status_line(
+        "Nagle global deshabilitado (registro TCP)",
+        global_nagle.contains("OK"),
+        false,
+    );
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+//  PASO 6: Firewall (bloqueo de telemetria)
+// ═══════════════════════════════════════════════════════════════════════════
+
+fn apply_firewall_rules() {
+    let fw_cmds: Vec<(&str, &str)> = vec![
+        (
+            "Bloqueando DiagTrack (Outbound)...",
+            "netsh advfirewall firewall add rule name=\"Block DiagTrack\" dir=out action=block service=DiagTrack",
+        ),
+        (
+            "Bloqueando WerSvc (Outbound)...",
+            "netsh advfirewall firewall add rule name=\"Block WerSvc\" dir=out action=block service=WerSvc",
+        ),
+        (
+            "Bloqueando dmwappushservice (Outbound)...",
+            "netsh advfirewall firewall add rule name=\"Block dmwappushservice\" dir=out action=block service=dmwappushservice",
+        ),
+    ];
+
+    for (desc, cmd) in &fw_cmds {
+        let ok = run_powershell_command(cmd).is_ok();
+        print_status_line(desc, ok, false);
+    }
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+//  PASO 7: Hardware (MSI, BCD, CPU, DWM, MMCSS, IRQ)
+// ═══════════════════════════════════════════════════════════════════════════
+
+fn apply_dynamic_hardware_tweaks() {
+    let temp_dir = env::temp_dir();
+    let script_path = temp_dir.join(format!("rsopt_hw_{}.ps1", std::process::id()));
+    let log_path = temp_dir.join(format!("rsopt_hw_{}.log", std::process::id()));
+    let log_path_ps = log_path.to_string_lossy().replace('\\', "\\\\");
+
+    let ps_script = format!(
+        r#"
+$ErrorActionPreference = 'SilentlyContinue'
+$ProgressPreference = 'SilentlyContinue'
+$LogPath = "{log_path}"
+
+function Add-Log {{
+    param([string]$Kind, [string]$Category, [string]$Message, [string]$Status = 'OK')
+    $line = "$Kind|$Category|$Status|$Message"
+    Add-Content -LiteralPath $LogPath -Value $line -Encoding UTF8
+}}
+
+function Safe-Name {{
+    param($Value)
+    if ($null -eq $Value) {{ return '' }}
+    return ([string]$Value).Replace("`r", " ").Replace("`n", " ").Trim()
+}}
+
+Remove-Item -LiteralPath $LogPath -Force -ErrorAction SilentlyContinue
+New-Item -ItemType File -Path $LogPath -Force | Out-Null
+
+# ── BCD Optimizations ──────────────────────────────────────────────────────
+try {{
+    bcdedit /set disabledynamictick yes | Out-Null
+    Add-Log 'INFO' 'BCD' 'disabledynamictick = yes'
+}} catch {{
+    Add-Log 'WARN' 'BCD' 'No se pudo aplicar disabledynamictick' 'WARN'
+}}
+
+try {{
+    bcdedit /set useplatformtick yes | Out-Null
+    Add-Log 'INFO' 'BCD' 'useplatformtick = yes'
+}} catch {{
+    Add-Log 'WARN' 'BCD' 'No se pudo aplicar useplatformtick' 'WARN'
+}}
+
+try {{
+    bcdedit /set nx OptIn | Out-Null
+    Add-Log 'INFO' 'BCD' 'DEP = OptIn'
+}} catch {{
+    Add-Log 'WARN' 'BCD' 'No se pudo ajustar DEP' 'WARN'
+}}
+
+# ── CPU Heterogeneous Policy ───────────────────────────────────────────────
+try {{
+    $build = [System.Environment]::OSVersion.Version.Build
+    if ($build -ge 19041 -and $build -lt 22000) {{
+        $GUID_HETERO = '7f2f5cfa-f10c-4823-b5e1-e93ae85f46b5'
+        $GUID_SCHED  = '93b8b6dc-0698-4d1c-9ee4-0644e900c85d'
+        powercfg -setacvalueindex SCHEME_CURRENT SUB_PROCESSOR $GUID_HETERO 3 | Out-Null
+        powercfg -setacvalueindex SCHEME_CURRENT SUB_PROCESSOR $GUID_SCHED 0 | Out-Null
+        powercfg -setactive SCHEME_CURRENT | Out-Null
+        Add-Log 'INFO' 'CPU' 'Windows 10 detectado - HeteroPolicy 3 aplicada'
+    }} elseif ($build -ge 22000) {{
+        Add-Log 'INFO' 'CPU' 'Windows 11 detectado - se respeta Thread Director'
+    }} else {{
+        Add-Log 'WARN' 'CPU' ('Build no contemplada: ' + $build) 'WARN'
+    }}
+}} catch {{
+    Add-Log 'WARN' 'CPU' 'No se pudo evaluar la politica heterogenea' 'WARN'
+}}
+
+# ── High Performance Power Plan ────────────────────────────────────────────
+try {{
+    $highPerf = powercfg -list | Select-String '8c5e7fda-e8bf-4a96-9a85-a6e23a8c635c'
+    if ($highPerf) {{
+        powercfg -setactive 8c5e7fda-e8bf-4a96-9a85-a6e23a8c635c | Out-Null
+        Add-Log 'INFO' 'POWER' 'Plan Alto Rendimiento activado'
+    }} else {{
+        Add-Log 'INFO' 'POWER' 'Plan Alto Rendimiento no disponible'
+    }}
+}} catch {{
+    Add-Log 'WARN' 'POWER' 'No se pudo cambiar plan de energia' 'WARN'
+}}
+
+# ── MSI Mode for Devices ───────────────────────────────────────────────────
+function Enable-MsiForDevice {{
+    param(
+        [string]$PnpId,
+        [string]$Name,
+        [string]$Type,
+        [bool]$IsGpu
+    )
+
+    $PnpId = Safe-Name $PnpId
+    $Name = Safe-Name $Name
+    if ([string]::IsNullOrWhiteSpace($PnpId) -or [string]::IsNullOrWhiteSpace($Name)) {{ return }}
+
+    $base = 'HKLM:\SYSTEM\CurrentControlSet\Enum\' + $PnpId + '\Device Parameters\Interrupt Management'
+    $msiPath = $base + '\MessageSignaledInterruptProperties'
+
+    try {{
+        if (!(Test-Path $msiPath)) {{ New-Item -Path $msiPath -Force | Out-Null }}
+        New-ItemProperty -Path $msiPath -Name 'MSISupported' -Value 1 -PropertyType DWord -Force | Out-Null
+        Add-Log 'HW' $Type ('MSI habilitado -> ' + $Name)
+    }} catch {{
+        Add-Log 'WARN' $Type ('No se pudo habilitar MSI -> ' + $Name) 'WARN'
+    }}
+
+    if ($IsGpu) {{
+        $affPath = $base + '\Affinity Policy'
+        try {{
+            if (!(Test-Path $affPath)) {{ New-Item -Path $affPath -Force | Out-Null }}
+            New-ItemProperty -Path $affPath -Name 'DevicePriority' -Value 3 -PropertyType DWord -Force | Out-Null
+            New-ItemProperty -Path $affPath -Name 'DevicePolicy' -Value 3 -PropertyType DWord -Force | Out-Null
+
+            $cores = @(Get-CimInstance Win32_Processor | Select-Object -ExpandProperty NumberOfLogicalProcessors | Where-Object {{ $_ -gt 0 }} | Measure-Object -Sum).Sum
+            if ($cores -gt 1) {{
+                $mask = [uint64](([math]::Pow(2, $cores)) - 2)
+                $bytes = [BitConverter]::GetBytes($mask)
+                New-ItemProperty -Path $affPath -Name 'AssignmentSetOverride' -Value $bytes -PropertyType Binary -Force | Out-Null
+                Add-Log 'HW' $Type ('Afinidad IRQ aplicada (mask=0x' + $mask.ToString('X') + ') -> ' + $Name)
+            }} else {{
+                Add-Log 'WARN' $Type ('No se aplico afinidad IRQ por nucleos insuficientes -> ' + $Name) 'WARN'
+            }}
+        }} catch {{
+            Add-Log 'WARN' $Type ('No se pudo aplicar prioridad/afinidad GPU -> ' + $Name) 'WARN'
+        }}
+    }}
+}}
+
+# ── GPUs ────────────────────────────────────────────────────────────────────
+try {{
+    $gpus = Get-CimInstance Win32_VideoController | Select-Object PNPDeviceID, Name
+    foreach ($gpu in $gpus) {{
+        Enable-MsiForDevice -PnpId $gpu.PNPDeviceID -Name $gpu.Name -Type 'GPU' -IsGpu $true
+    }}
+}} catch {{
+    Add-Log 'WARN' 'GPU' 'No se pudieron enumerar GPUs' 'WARN'
+}}
+
+# ── Storage Controllers ────────────────────────────────────────────────────
+try {{
+    $storageControllers = Get-PnpDevice -PresentOnly | Where-Object {{
+        $_.Class -in @('SCSIAdapter','HDC','IDE','Storage')
+    }} | Select-Object InstanceId, FriendlyName, Class
+
+    foreach ($ctrl in $storageControllers) {{
+        $nm = if ([string]::IsNullOrWhiteSpace($ctrl.FriendlyName)) {{ $ctrl.InstanceId }} else {{ $ctrl.FriendlyName }}
+        Enable-MsiForDevice -PnpId $ctrl.InstanceId -Name $nm -Type 'Storage' -IsGpu $false
+    }}
+}} catch {{
+    Add-Log 'WARN' 'Storage' 'No se pudieron enumerar controladores de almacenamiento' 'WARN'
+}}
+
+# ── NICs Fisicas ───────────────────────────────────────────────────────────
+try {{
+    $nics = Get-NetAdapter -Physical -ErrorAction SilentlyContinue | Select-Object Name, InterfaceDescription, PnPDeviceID
+    foreach ($nic in $nics) {{
+        $nm = if ([string]::IsNullOrWhiteSpace($nic.InterfaceDescription)) {{ $nic.Name }} else {{ $nic.InterfaceDescription }}
+        Enable-MsiForDevice -PnpId $nic.PnPDeviceID -Name $nm -Type 'NIC' -IsGpu $false
+    }}
+}} catch {{
+    Add-Log 'WARN' 'NIC' 'No se pudieron enumerar NICs fisicas' 'WARN'
+}}
+
+# ── USB Controllers ────────────────────────────────────────────────────────
+try {{
+    $usbControllers = Get-PnpDevice -PresentOnly | Where-Object {{
+        $_.Class -eq 'USB'
+    }} | Select-Object InstanceId, FriendlyName
+
+    foreach ($usb in $usbControllers) {{
+        $nm = if ([string]::IsNullOrWhiteSpace($usb.FriendlyName)) {{ $usb.InstanceId }} else {{ $usb.FriendlyName }}
+        Enable-MsiForDevice -PnpId $usb.InstanceId -Name $nm -Type 'USB' -IsGpu $false
+    }}
+}} catch {{
+    Add-Log 'WARN' 'USB' 'No se pudieron enumerar controladores USB' 'WARN'
+}}
+
+# ── DWM MMCSS ──────────────────────────────────────────────────────────────
+try {{
+    Add-Type -TypeDefinition @'
+using System.Runtime.InteropServices;
+public static class DwmBridge {{
+    [DllImport("dwmapi.dll", PreserveSig=false)]
+    public static extern void DwmEnableMMCSS(bool enable);
+}}
+'@
+    [DwmBridge]::DwmEnableMMCSS($true)
+    Add-Log 'INFO' 'DWM' 'DwmEnableMMCSS(true) ejecutado'
+}} catch {{
+    Add-Log 'WARN' 'DWM' 'No se pudo invocar DwmEnableMMCSS' 'WARN'
+}}
+
+# ── MMCSS Network Throttling ───────────────────────────────────────────────
+try {{
+    $mmcssPath = 'HKLM:\SOFTWARE\Microsoft\Windows NT\CurrentVersion\Multimedia\SystemProfile'
+    if (Test-Path $mmcssPath) {{
+        New-ItemProperty -Path $mmcssPath -Name 'NetworkThrottlingIndex' -Value 0xFFFFFFFF -PropertyType DWord -Force | Out-Null
+        New-ItemProperty -Path $mmcssPath -Name 'SystemResponsiveness' -Value 0 -PropertyType DWord -Force | Out-Null
+        Add-Log 'INFO' 'MMCSS' 'NetworkThrottlingIndex=FFFFFFFF, SystemResponsiveness=0'
+    }}
+}} catch {{
+    Add-Log 'WARN' 'MMCSS' 'No se pudo ajustar MMCSS' 'WARN'
+}}
+
+# ── GPU Priority via MMCSS Tasks ───────────────────────────────────────────
+try {{
+    $gpuPath = 'HKLM:\SOFTWARE\Microsoft\Windows NT\CurrentVersion\Multimedia\SystemProfile\Tasks\Games'
+    if (!(Test-Path $gpuPath)) {{ New-Item -Path $gpuPath -Force | Out-Null }}
+    New-ItemProperty -Path $gpuPath -Name 'GPU Priority' -Value 8 -PropertyType DWord -Force | Out-Null
+    New-ItemProperty -Path $gpuPath -Name 'Priority' -Value 6 -PropertyType DWord -Force | Out-Null
+    New-ItemProperty -Path $gpuPath -Name 'Scheduling Category' -Value 'High' -PropertyType String -Force | Out-Null
+    New-ItemProperty -Path $gpuPath -Name 'SFIO Priority' -Value 'High' -PropertyType String -Force | Out-Null
+    Add-Log 'INFO' 'MMCSS' 'GPU Priority y Games Task optimizados'
+}} catch {{
+    Add-Log 'WARN' 'MMCSS' 'No se pudo ajustar GPU Priority' 'WARN'
+}}
+"#,
+        log_path = log_path_ps
+    );
+
+    if let Err(e) = fs::write(&script_path, ps_script) {
+        set_color_red();
+        println!("  [ ERROR ] No se pudo crear el script temporal: {}", e);
+        reset_color();
+        return;
+    }
+
+    let output_result = Command::new("powershell")
+        .args(&[
+            "-NoProfile",
+            "-NonInteractive",
+            "-ExecutionPolicy",
+            "Bypass",
+            "-File",
+            script_path.to_str().unwrap(),
+        ])
+        .creation_flags(CREATE_NO_WINDOW)
+        .output();
+
+    let _ = fs::remove_file(&script_path);
+
+    if output_result.is_err() {
+        set_color_red();
+        println!("  [ ERROR ] Fallo total al invocar PowerShell.");
+        reset_color();
+        return;
+    }
+
+    let log_content = fs::read_to_string(&log_path).unwrap_or_default();
+    let _ = fs::remove_file(&log_path);
+
+    let mut emitted = false;
+    for raw in log_content.lines() {
+        let line = raw.trim();
+        if line.is_empty() {
+            continue;
+        }
+        let parts: Vec<&str> = line.splitn(4, '|').collect();
+        if parts.len() < 4 {
+            continue;
+        }
+        emitted = true;
+        let kind = parts[0];
+        let category = parts[1];
+        let status = parts[2];
+        let message = parts[3];
+
+        let mut msg = message.to_string();
+        if msg.len() > 56 {
+            msg.truncate(53);
+            msg.push_str("...");
+        }
+
+        let desc = match kind {
+            "HW" => format!("MSI/IRQ -> [{}] {}", category, msg),
+            "WARN" => format!("Aviso [{}] -> {}", category, msg),
+            _ => format!("Aplicando [{}] -> {}", category, msg),
+        };
+
+        let ok = status.eq_ignore_ascii_case("OK");
+        let warn = status.eq_ignore_ascii_case("WARN");
+        print_status_line(&desc, ok, warn);
+    }
+
+    if !emitted {
+        set_color_yellow();
+        println!("  [ INFO ] Sin salida en el motor de hardware.");
+        reset_color();
+    }
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+//  PASO 8a: Registro embebido
+// ═══════════════════════════════════════════════════════════════════════════
+
 fn apply_embedded_registry() {
-    print!(" Aplicando archivo incrustado...");
-    for _ in 0..(40_usize.saturating_sub(32)) { print!(" "); }
+    print!("  Aplicando archivo .reg de base estable... ");
     io::stdout().flush().unwrap();
 
     let temp_dir = env::temp_dir();
-    let reg_path = temp_dir.join(format!("RS_Opt_{}.reg", std::process::id()));
+    let reg_path = temp_dir.join(format!("RSOpt_{}.reg", std::process::id()));
 
     if fs::write(&reg_path, REG_RESOURCE).is_ok() {
         let status = Command::new("regedit.exe")
@@ -248,27 +994,32 @@ fn apply_embedded_registry() {
     }
 
     set_color_yellow();
-    println!("(!) Error aplicando registro incrustado");
+    println!("[ ERROR ] No se pudo aplicar registro base");
     reset_color();
 }
 
-fn install_and_run_ram_optimizer() {
-    print!(" Cerrando instancias anteriores...");
-    for _ in 0..(40_usize.saturating_sub(34)) { print!(" "); }
-    io::stdout().flush().unwrap();
+// ═══════════════════════════════════════════════════════════════════════════
+//  PASO 8b: RAM Optimizer
+// ═══════════════════════════════════════════════════════════════════════════
 
-    let _ = Command::new("taskkill").args(&["/F", "/IM", "RS RAM Optimizer.exe"]).creation_flags(CREATE_NO_WINDOW).output();
+fn install_and_run_ram_optimizer() {
+    print!("  Cerrando instancias anteriores... ");
+    io::stdout().flush().unwrap();
+    let _ = Command::new("taskkill")
+        .args(&["/F", "/IM", "RS RAM Optimizer.exe"])
+        .creation_flags(CREATE_NO_WINDOW)
+        .output();
+
     thread::sleep(Duration::from_millis(1500));
     set_color_green();
     println!("[ OK ]");
     reset_color();
 
-    print!(" Extrayendo RAM Optimizer...");
-    for _ in 0..(40_usize.saturating_sub(28)) { print!(" "); }
+    print!("  Extrayendo RAM Optimizer... ");
     io::stdout().flush().unwrap();
 
     if let Ok(appdata) = env::var("APPDATA") {
-        let rs_folder = PathBuf::from(appdata).join("RickStyles").join("RS_Optimizer");
+        let rs_folder = PathBuf::from(appdata).join("RickStyles").join("RSOptimizer");
         let _ = fs::create_dir_all(&rs_folder);
         let target_exe = rs_folder.join("RS RAM Optimizer.exe");
 
@@ -277,12 +1028,13 @@ fn install_and_run_ram_optimizer() {
             println!("[ OK ]");
             reset_color();
 
-            print!(" Configurando inicio con Windows...");
-            for _ in 0..(40_usize.saturating_sub(35)) { print!(" "); }
+            print!("  Configurando inicio con Windows... ");
             io::stdout().flush().unwrap();
-
-            let reg_cmd = format!("Set-ItemProperty -Path 'HKCU:\\Software\\Microsoft\\Windows\\CurrentVersion\\Run' -Name 'RS_RAM_Optimizer' -Value '\"{}\"' -Force", target_exe.display());
-            if run_powershell(&reg_cmd).is_ok() {
+            let reg_cmd = format!(
+                "Set-ItemProperty -Path HKCU:\\Software\\Microsoft\\Windows\\CurrentVersion\\Run -Name 'RSRAMOptimizer' -Value '\"{}\"' -Force",
+                target_exe.display()
+            );
+            if run_powershell_command(&reg_cmd).is_ok() {
                 set_color_green();
                 println!("[ OK ]");
                 reset_color();
@@ -292,11 +1044,13 @@ fn install_and_run_ram_optimizer() {
                 reset_color();
             }
 
-            print!(" Iniciando optimizador en 2do plano...");
-            for _ in 0..(40_usize.saturating_sub(38)) { print!(" "); }
+            print!("  Iniciando optimizador en 2do plano... ");
             io::stdout().flush().unwrap();
-
-            if Command::new(&target_exe).creation_flags(CREATE_NO_WINDOW).spawn().is_ok() {
+            if Command::new(&target_exe)
+                .creation_flags(CREATE_NO_WINDOW)
+                .spawn()
+                .is_ok()
+            {
                 set_color_green();
                 println!("[ OK ]");
                 reset_color();

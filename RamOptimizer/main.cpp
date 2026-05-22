@@ -1,3 +1,4 @@
+#define _CRT_SECURE_NO_WARNINGS
 #ifndef _WIN32_WINNT
 #define _WIN32_WINNT 0x0A00
 #endif
@@ -540,6 +541,29 @@ LRESULT CALLBACK WindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam) 
 }
 
 // ==============================================================
+
+// ==============================================================
+// NT API PARA TIMER RESOLUTION
+// ==============================================================
+typedef NTSTATUS(WINAPI* PFN_NtSetTimerResolution)(ULONG, BOOLEAN, PULONG);
+
+static void ApplyGlobalTimerResolution() {
+    HMODULE hNtDll = GetModuleHandleW(L"ntdll.dll");
+    if (hNtDll) {
+        PFN_NtSetTimerResolution pfnNtSetTimerResolution = 
+            (PFN_NtSetTimerResolution)GetProcAddress(hNtDll, "NtSetTimerResolution");
+
+        if (pfnNtSetTimerResolution) {
+            ULONG currentRes;
+            // 5000 = 0.5ms (la resolucion maxima suportada por Windows)
+            pfnNtSetTimerResolution(5000, TRUE, &currentRes);
+#if DEBUG_MODE
+            printf(">>> Timer Resolution Kernel fijado a 0.5ms\n\n");
+#endif
+        }
+    }
+}
+
 //  PUNTO DE ENTRADA
 // ==============================================================
 int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine, int nCmdShow) {
@@ -582,6 +606,7 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine
         return 0;
     }
 
+    ApplyGlobalTimerResolution();
     g_hInstance = hInstance;
     const wchar_t CLASS_NAME[] = L"RS_TrayOptimizerClass";
 
@@ -614,7 +639,7 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine
     if (g_nid.hIcon == NULL)
         g_nid.hIcon = LoadIcon(NULL, IDI_APPLICATION);
 
-    lstrcpyW(g_nid.szTip, L"RS RAM Optimizer v2.0 (Smart)");
+    lstrcpyW(g_nid.szTip, L"RS RAM Optimizer v1.B");
     Shell_NotifyIconW(NIM_ADD, &g_nid);
 
     DBG("Icono de bandeja creado. Intervalo: %d seg\n\n", OPTIMIZE_INTERVAL / 1000);
