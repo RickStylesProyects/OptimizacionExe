@@ -87,6 +87,7 @@ HINSTANCE g_hInstance;
 HWND g_hwnd;
 NOTIFYICONDATAW g_nid;
 DWORD g_protectedPid = 0;
+UINT g_uShellRestartMsg = 0;
 
 // Arrays estaticos para evitar overflow de stack
 static ProcessInfo g_procs[MAX_PROCS];
@@ -758,6 +759,11 @@ void SmartOptimize() {
 //  WINDOW PROCEDURE
 // ==============================================================
 LRESULT CALLBACK WindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam) {
+    if (g_uShellRestartMsg != 0 && uMsg == g_uShellRestartMsg) {
+        Shell_NotifyIconW(NIM_ADD, &g_nid);
+        return 0;
+    }
+
     switch (uMsg) {
         case WM_CREATE:
             SetTimer(hwnd, TIMER_OPTIMIZE, OPTIMIZE_INTERVAL, NULL);
@@ -888,6 +894,7 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine
     }
 
     ApplyGlobalTimerResolution();
+    g_uShellRestartMsg = RegisterWindowMessageW(L"TaskbarCreated");
     g_hInstance = hInstance;
     const wchar_t CLASS_NAME[] = L"RS_TrayOptimizerClass";
 

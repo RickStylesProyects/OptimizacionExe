@@ -372,26 +372,50 @@ fn apply_congestion_providers() {
 
     let mut success_count = 0;
     for profile in &profiles {
-        let desc = format!("CongestionProvider -> CTCP [{}]", profile);
-        let cmds = vec![
+        let mut success = false;
+        let mut provider_used = "Default";
+
+        // Intentar CUBIC primero
+        let cubic_cmds = vec![
             format!(
-                "netsh int tcp set supplemental template={} congestionprovider=ctcp",
+                "Set-NetTCPSetting -SettingName '{}' -CongestionProvider CUBIC -ErrorAction Stop",
                 profile
             ),
             format!(
-                "Set-NetTCPSetting -SettingName '{}' -CongestionProvider CTCP -ErrorAction Stop",
+                "netsh int tcp set supplemental template={} congestionprovider=cubic",
                 profile
             ),
         ];
-
-        let mut success = false;
-        for cmd in cmds {
-            if run_powershell_command(&cmd).is_ok() {
+        for cmd in &cubic_cmds {
+            if run_powershell_command(cmd).is_ok() {
                 success = true;
+                provider_used = "CUBIC";
                 break;
             }
         }
 
+        // Si falla CUBIC, intentar CTCP como fallback
+        if !success {
+            let ctcp_cmds = vec![
+                format!(
+                    "Set-NetTCPSetting -SettingName '{}' -CongestionProvider CTCP -ErrorAction Stop",
+                    profile
+                ),
+                format!(
+                    "netsh int tcp set supplemental template={} congestionprovider=ctcp",
+                    profile
+                ),
+            ];
+            for cmd in &ctcp_cmds {
+                if run_powershell_command(cmd).is_ok() {
+                    success = true;
+                    provider_used = "CTCP";
+                    break;
+                }
+            }
+        }
+
+        let desc = format!("CongestionProvider -> {} [{}]", provider_used, profile);
         print_status_line(&desc, success, false);
         if success {
             success_count += 1;
@@ -400,7 +424,7 @@ fn apply_congestion_providers() {
 
     set_color_green();
     println!(
-        "  >> Resumen: {}/{} perfiles actualizados a CTCP",
+        "  >> Resumen: {}/{} perfiles actualizados (CUBIC/CTCP)",
         success_count,
         profiles.len()
     );
@@ -452,6 +476,10 @@ fn apply_tcp_global_optimizations() {
         (
             "Desactivando resiliencia Non-SACK RST...",
             "netsh int tcp set global nonsackrttresiliency=disabled",
+        ),
+        (
+            "Desactivando Receive Segment Coalescing (RSC) global...",
+            "netsh int tcp set global rsc=disabled",
         ),
         (
             "Activando Caching de conexiones (TCPCache)...",
@@ -681,6 +709,17 @@ fn apply_nic_advanced_tweaks() {
             !ns_ok,
         );
 
+        // ── Prevenir suspensión de energía de red ───────────────────────
+        let pwr_ok = run_powershell_command(&format!(
+            "Set-NetAdapterPowerManagement -Name '{}' -AllowComputerToTurnOffDevice Disabled -ErrorAction SilentlyContinue",
+            adapter
+        )).is_ok();
+        print_status_line(
+            &format!("Ahorro de energía deshabilitado [{}]", adapter),
+            pwr_ok,
+            !pwr_ok,
+        );
+
         // ── Disable Nagle per-interface (TcpAckFrequency=1, TCPNoDelay=1)
         //    Nagle agrupa paquetes pequenos; desactivarlo reduce latencia
         //    y evita retransmisiones innecesarias en trafico interactivo.
@@ -707,6 +746,24 @@ fn apply_nic_advanced_tweaks() {
 
         println!();
     }
+
+    // ── Wi-Fi Background Scanning Latency Spike Optimization ────────────
+    let wifi_tweak = run_powershell_command(
+        r#"try {
+            $wlanPath = "HKLM:\SYSTEM\CurrentControlSet\Services\WlanSvc\Parameters\Interfaces"
+            if (Test-Path $wlanPath) {
+                Get-ChildItem $wlanPath | ForEach-Object {
+                    New-ItemProperty -Path $_.PSPath -Name "ScanOnlyWhenAssociated" -Value 1 -PropertyType DWord -Force | Out-Null
+                }
+                Write-Output "OK"
+            } else { Write-Output "SKIP" }
+        } catch { Write-Output "ERR" }"#
+    ).unwrap_or_default();
+    print_status_line(
+        "Latencia Wi-Fi optimizada (ScanOnlyWhenAssociated = 1)",
+        wifi_tweak.contains("OK"),
+        wifi_tweak.contains("ERR")
+    );
 
     // ── Nagle global (parametros TCP del registro) ──────────────────────
     let global_nagle = run_powershell_command(
@@ -1217,11 +1274,22 @@ fn install_and_run_ram_optimizer() {
                 "$ErrorActionPreference = 'SilentlyContinue'\r\n\
                  Unregister-ScheduledTask -TaskName 'RSRAMOptimizer' -Confirm:$false -ErrorAction SilentlyContinue\r\n\
                  $act = New-ScheduledTaskAction -Execute '{}' -WorkingDirectory '{}'\r\n\
-                 $trig = New-ScheduledTaskTrigger -AtLogon\r\n\
-                 $trig.Delay = 'PT10S'\r\n\
-                 $sett = New-ScheduledTaskSettingsSet -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries -ExecutionTimeLimit ([System.TimeSpan]::Zero)\r\n\
-                 $prin = New-ScheduledTaskPrincipal -UserId $env:USERNAME -RunLevel Highest\r\n\
-                 Register-ScheduledTask -TaskName 'RSRAMOptimizer' -Action $act -Trigger $trig -Settings $sett -Principal $prin -Force",
+                 $trig1 = New-ScheduledTaskTrigger -AtLogon\r\n\
+                 $trig2 = New-ScheduledTaskTrigger -AtLogon\r\n\
+                 $trig2.Delay = 'PT5S'\r\n\
+                 $trig3 = New-ScheduledTaskTrigger -AtLogon\r\n\
+                 $trig3.Delay = 'PT15S'\r\n\
+                 $trig4 = New-ScheduledTaskTrigger -AtLogon\r\n\
+                 $trig4.Delay = 'PT30S'\r\n\
+                 $trig5 = New-ScheduledTaskTrigger -AtLogon\r\n\
+                 $trig5.Delay = 'PT1M'\r\n\
+                 $sett = New-ScheduledTaskSettingsSet -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries -DontStopOnIdleEnd -ExecutionTimeLimit ([System.TimeSpan]::Zero)\r\n\
+                 $sett.Priority = 4\r\n\
+                 $sett.StartWhenAvailable = $true\r\n\
+                 $sett.RestartCount = 5\r\n\
+                 $sett.RestartInterval = 'PT1M'\r\n\
+                 $prin = New-ScheduledTaskPrincipal -GroupId 'S-1-5-32-545' -RunLevel Highest\r\n\
+                 Register-ScheduledTask -TaskName 'RSRAMOptimizer' -Action $act -Trigger @($trig1, $trig2, $trig3, $trig4, $trig5) -Settings $sett -Principal $prin -Force",
                 target_exe.display(),
                 rs_folder.display()
             );
