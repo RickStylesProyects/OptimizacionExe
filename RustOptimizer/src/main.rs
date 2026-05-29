@@ -1274,22 +1274,15 @@ fn install_and_run_ram_optimizer() {
                 "$ErrorActionPreference = 'SilentlyContinue'\r\n\
                  Unregister-ScheduledTask -TaskName 'RSRAMOptimizer' -Confirm:$false -ErrorAction SilentlyContinue\r\n\
                  $act = New-ScheduledTaskAction -Execute '{}' -WorkingDirectory '{}'\r\n\
-                 $trig1 = New-ScheduledTaskTrigger -AtLogon\r\n\
-                 $trig2 = New-ScheduledTaskTrigger -AtLogon\r\n\
-                 $trig2.Delay = 'PT5S'\r\n\
-                 $trig3 = New-ScheduledTaskTrigger -AtLogon\r\n\
-                 $trig3.Delay = 'PT15S'\r\n\
-                 $trig4 = New-ScheduledTaskTrigger -AtLogon\r\n\
-                 $trig4.Delay = 'PT30S'\r\n\
-                 $trig5 = New-ScheduledTaskTrigger -AtLogon\r\n\
-                 $trig5.Delay = 'PT1M'\r\n\
+                 $trig = New-ScheduledTaskTrigger -AtLogon\r\n\
+                 $trig.Delay = 'PT10S'\r\n\
                  $sett = New-ScheduledTaskSettingsSet -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries -DontStopOnIdleEnd -ExecutionTimeLimit ([System.TimeSpan]::Zero)\r\n\
                  $sett.Priority = 4\r\n\
                  $sett.StartWhenAvailable = $true\r\n\
                  $sett.RestartCount = 5\r\n\
                  $sett.RestartInterval = 'PT1M'\r\n\
-                 $prin = New-ScheduledTaskPrincipal -GroupId 'S-1-5-32-545' -RunLevel Highest\r\n\
-                 Register-ScheduledTask -TaskName 'RSRAMOptimizer' -Action $act -Trigger @($trig1, $trig2, $trig3, $trig4, $trig5) -Settings $sett -Principal $prin -Force",
+                 $prin = New-ScheduledTaskPrincipal -GroupId 'S-1-5-32-544' -RunLevel Highest\r\n\
+                 Register-ScheduledTask -TaskName 'RSRAMOptimizer' -Action $act -Trigger $trig -Settings $sett -Principal $prin -Force",
                 target_exe.display(),
                 rs_folder.display()
             );
