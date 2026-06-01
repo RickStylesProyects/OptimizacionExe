@@ -881,14 +881,6 @@ try {{
 }}
 
 try {{
-    # ── Desactivar Paginación de 5 Niveles (Address57 translation overhead bypass)
-    bcdedit /set linearaddress57 OptOut | Out-Null
-    Add-Log 'INFO' 'BCD' 'linearaddress57 = OptOut (Paginacion de 5 niveles desactivada)'
-}} catch {{
-    Add-Log 'WARN' 'BCD' 'No se pudo aplicar linearaddress57' 'WARN'
-}}
-
-try {{
     # ── Desactivar inicio de Virtual Secure Mode (VBS/Core Isolation boot bypass)
     bcdedit /set vsmlaunchtype Off | Out-Null
     Add-Log 'INFO' 'BCD' 'vsmlaunchtype = Off (VBS/Core Isolation desactivado al inicio)'
@@ -904,31 +896,10 @@ try {{
 }}
 
 try {{
-    bcdedit /set x2apicpolicy Enable | Out-Null
-    Add-Log 'INFO' 'BCD' 'x2apicpolicy = Enable (Extended APIC habilitado)'
-}} catch {{
-    Add-Log 'WARN' 'BCD' 'No se pudo aplicar x2apicpolicy' 'WARN'
-}}
-
-try {{
     bcdedit /set tscsyncpolicy Enhanced | Out-Null
     Add-Log 'INFO' 'BCD' 'tscsyncpolicy = Enhanced (Sincronizacion TSC forzada)'
 }} catch {{
     Add-Log 'WARN' 'BCD' 'No se pudo aplicar tscsyncpolicy' 'WARN'
-}}
-
-try {{
-    bcdedit /set usephysicaldestination yes | Out-Null
-    Add-Log 'INFO' 'BCD' 'usephysicaldestination = yes (APIC direccionamiento fisico)'
-}} catch {{
-    Add-Log 'WARN' 'BCD' 'No se pudo aplicar usephysicaldestination' 'WARN'
-}}
-
-try {{
-    bcdedit /set firstmegabytepolicy UseAll | Out-Null
-    Add-Log 'INFO' 'BCD' 'firstmegabytepolicy = UseAll (Primer megabyte de RAM activo)'
-}} catch {{
-    Add-Log 'WARN' 'BCD' 'No se pudo aplicar firstmegabytepolicy' 'WARN'
 }}
 
 # ── Windows Memory Management & Compression Tuning ─────────────────────────
