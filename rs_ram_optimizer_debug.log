@@ -1,0 +1,177 @@
+=== RS RAM Optimizer v1.C - MODO DEBUG ===
+Este archivo muestra el funcionamiento interno en tiempo real.
+Cambiar DEBUG_MODE a 0 en el codigo para produccion.
+
+
+>>> NtSetTimerResolution(5000, TRUE, ...) retorno status 0x00000000 (Resolucion actual: 1.000 ms)
+
+  [FEATURE] Activating Low Latency Profile features...
+  [FEATURE] Failed to set Feature ID 58989092 in registry (error 5).
+  [FEATURE] Failed to set Feature ID 60716524 in registry (error 5).
+  [FEATURE] Failed to set Feature ID 48433719 in registry (error 5).
+  [FEATURE] Failed to set Feature ID 61391826 in registry (error 5).
+  [OPTIMIZER AFFINITY] CPU Homogenea. Afinamiento a Core 0 (mascara: 0x0000000000000001)
+  [OPTIMIZER AFFINITY] Afinidad del optimizador fijada correctamente.
+>>> NtSetTimerResolution(5000, TRUE, ...) retorno status 0x00000000 (Resolucion actual: 0.500 ms)
+
+
+========================================
+  CICLO DE OPTIMIZACION INTELIGENTE
+========================================
+  CPUs: 16 | RAM Total: 32499 MB | Procesos: 366
+
+  [1/5] Consultando GPU via PDH...
+  [PDH] PdhAddEnglishCounterA: disponible
+  [GPU] 4 procesos con actividad GPU
+
+  [2/5] Muestra CPU #1...
+  [3/5] Esperando 500 ms para delta CPU...
+  [4/5] Muestra CPU #2 + scoring...
+  [5/5] Evaluando scores...
+
+  PROCESO                         CPU%  RAM(MB)    GPU%  FS     SCORE
+  ---------------------------- ------- -------- ------- --- ---------
+  Antigravity IDE.exe             2.0%   629.8    0.0%  NO       8.8
+  Antigravity IDE.exe             0.0%   179.8    1.1%  NO       5.3
+  qbittorrent.exe                 0.4%   775.0    0.0%  NO       4.7
+  PhoneExperienceHost.exe         0.0%   422.1    0.0%  NO       1.9
+  NVIDIA Overlay.exe              0.0%   240.1    0.0%  NO       1.1
+  clangd.EXE                      0.0%   232.3    0.0%  NO       1.1
+  language_server_windows_x64.exe    0.0%   191.1    0.0%  NO       0.9
+  CrossDeviceService.exe          0.0%   188.0    0.0%  NO       0.9
+  Antigravity IDE.exe             0.0%   182.5    0.0%  NO       0.8
+  Blip.exe                        0.0%   170.0    0.0%  NO       0.8
+  Rave.exe                        0.2%    37.5    0.0%  NO       0.8
+  GameBar.exe                     0.0%   161.1    0.0%  NO       0.7
+  AWCC.exe                        0.0%   132.2    0.0%  NO       0.6
+  XboxGameBarWidgets.exe          0.0%   129.4    0.0%  NO       0.6
+  NVIDIA Overlay.exe              0.0%   123.8    0.0%  NO       0.6
+
+  >>> [TEST HARNESS] JUEGO SIMULADO: Antigravity IDE.exe (PID 5488, Score 8.8, Ciclo 1)
+  >>> Prioridad elevada a HIGH_PRIORITY_CLASS
+  [AFFINITY] CPU Homogenea Detectada. Afinidad fijada a todos los cores (menos Core 0): 0x000000000000FFFE
+  [AFFINITY] Afinidad CPU del juego establecida correctamente.
+  [RAM] Purgado de Standby List ejecutado (status 0xc0000061)
+
+  Resultado: 189 optimizados, 1 protegidos
+========================================
+
+Icono de bandeja creado. Intervalo: 5 seg
+
+>>> NtSetTimerResolution(5000, TRUE, ...) retorno status 0x00000000 (Resolucion actual: 0.500 ms)
+
+
+========================================
+  CICLO DE OPTIMIZACION INTELIGENTE
+========================================
+  CPUs: 16 | RAM Total: 32499 MB | Procesos: 366
+
+  [1/5] Consultando GPU via PDH...
+  [GPU] 4 procesos con actividad GPU
+
+  [2/5] Muestra CPU #1...
+  [3/5] Esperando 500 ms para delta CPU...
+  [4/5] Muestra CPU #2 + scoring...
+  [5/5] Evaluando scores...
+
+  PROCESO                         CPU%  RAM(MB)    GPU%  FS     SCORE
+  ---------------------------- ------- -------- ------- --- ---------
+  Antigravity IDE.exe             1.4%   633.4    0.0%  NO       7.0
+  Antigravity IDE.exe             0.2%   164.7    1.2%  NO       6.3
+  qbittorrent.exe                 0.4%   782.0    0.0%  NO       4.8
+  AWCC.Background.Server.exe      0.8%   112.2    0.0%  NO       2.9
+  PhoneExperienceHost.exe         0.0%   422.1    0.0%  NO       1.9
+  Antigravity IDE.exe             0.4%   115.8    0.0%  NO       1.7
+  NVIDIA Overlay.exe              0.2%   240.1    0.0%  NO       1.7
+  Antigravity IDE.exe             0.2%   184.4    0.0%  NO       1.4
+  NahimicSvc32.exe                0.4%    35.1    0.0%  NO       1.3
+  clangd.EXE                      0.0%   232.3    0.0%  NO       1.1
+  language_server_windows_x64.exe    0.0%   192.0    0.0%  NO       0.9
+  CrossDeviceService.exe          0.0%   188.0    0.0%  NO       0.9
+  GameBarFTServer.exe             0.2%    58.9    0.0%  NO       0.9
+  Blip.exe                        0.0%   170.0    0.0%  NO       0.8
+  GameBar.exe                     0.0%   161.1    0.0%  NO       0.7
+
+  >>> No se detecto juego (Score max: 7.0, Threshold: 100.0)
+
+  Resultado: 190 optimizados, 0 protegidos
+========================================
+
+>>> NtSetTimerResolution(5000, TRUE, ...) retorno status 0x00000000 (Resolucion actual: 0.500 ms)
+
+
+========================================
+  CICLO DE OPTIMIZACION INTELIGENTE
+========================================
+  CPUs: 16 | RAM Total: 32499 MB | Procesos: 366
+
+  [1/5] Consultando GPU via PDH...
+  [GPU] 3 procesos con actividad GPU
+
+  [2/5] Muestra CPU #1...
+  [3/5] Esperando 500 ms para delta CPU...
+  [4/5] Muestra CPU #2 + scoring...
+  [5/5] Evaluando scores...
+
+  PROCESO                         CPU%  RAM(MB)    GPU%  FS     SCORE
+  ---------------------------- ------- -------- ------- --- ---------
+  Antigravity IDE.exe             2.1%   665.7    0.0%  NO       9.5
+  Antigravity IDE.exe             0.4%   165.6    1.5%  NO       7.8
+  qbittorrent.exe                 0.6%   788.3    0.0%  NO       5.4
+  AWCC.Background.Server.exe      1.2%   112.2    0.0%  NO       4.0
+  PhoneExperienceHost.exe         0.0%   428.1    0.0%  NO       2.0
+  SteelSeriesSonar.exe            0.4%    41.0    0.0%  NO       1.4
+  Rave.exe                        0.4%    37.5    0.0%  NO       1.3
+  Antigravity IDE.exe             0.2%   115.7    0.0%  NO       1.1
+  NVIDIA Overlay.exe              0.0%   240.1    0.0%  NO       1.1
+  clangd.EXE                      0.0%   232.1    0.0%  NO       1.1
+  language_server_windows_x64.exe    0.0%   191.2    0.0%  NO       0.9
+  CrossDeviceService.exe          0.0%   188.0    0.0%  NO       0.9
+  Antigravity IDE.exe             0.0%   183.3    0.0%  NO       0.8
+  Blip.exe                        0.0%   170.0    0.0%  NO       0.8
+  Rave.exe                        0.2%    37.4    0.0%  NO       0.8
+
+  >>> No se detecto juego (Score max: 9.5, Threshold: 100.0)
+
+  Resultado: 190 optimizados, 0 protegidos
+========================================
+
+>>> NtSetTimerResolution(5000, TRUE, ...) retorno status 0x00000000 (Resolucion actual: 0.500 ms)
+
+
+========================================
+  CICLO DE OPTIMIZACION INTELIGENTE
+========================================
+  CPUs: 16 | RAM Total: 32499 MB | Procesos: 367
+
+  [1/5] Consultando GPU via PDH...
+  [GPU] 3 procesos con actividad GPU
+
+  [2/5] Muestra CPU #1...
+  [3/5] Esperando 500 ms para delta CPU...
+  [4/5] Muestra CPU #2 + scoring...
+  [5/5] Evaluando scores...
+
+  PROCESO                         CPU%  RAM(MB)    GPU%  FS     SCORE
+  ---------------------------- ------- -------- ------- --- ---------
+  Antigravity IDE.exe             2.3%   739.5    0.0%  NO      10.4
+  qbittorrent.exe                 0.8%   794.8    0.0%  NO       6.0
+  Antigravity IDE.exe             0.6%   115.9    0.0%  NO       2.3
+  AWCC.Background.Server.exe      0.6%   112.3    0.0%  NO       2.3
+  Antigravity IDE.exe             0.0%   164.2    0.3%  NO       2.0
+  PhoneExperienceHost.exe         0.0%   428.0    0.0%  NO       2.0
+  language_server_windows_x64.exe    0.2%   205.2    0.0%  NO       1.5
+  NVIDIA Overlay.exe              0.0%   240.1    0.0%  NO       1.1
+  clangd.EXE                      0.0%   231.9    0.0%  NO       1.1
+  CrossDeviceService.exe          0.0%   188.0    0.0%  NO       0.9
+  Antigravity IDE.exe             0.0%   185.7    0.0%  NO       0.9
+  Blip.exe                        0.0%   170.3    0.0%  NO       0.8
+  SteelSeriesSonar.exe            0.2%    39.0    0.0%  NO       0.8
+  Rave.exe                        0.2%    37.5    0.0%  NO       0.8
+  Rave.exe                        0.2%    37.4    0.0%  NO       0.8
+
+  >>> No se detecto juego (Score max: 10.4, Threshold: 100.0)
+
+  Resultado: 191 optimizados, 0 protegidos
+========================================
+

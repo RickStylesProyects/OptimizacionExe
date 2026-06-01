@@ -330,6 +330,7 @@ typedef NTSTATUS(WINAPI* PFN_NtSetSystemInformation)(INT, PVOID, ULONG);
 typedef struct {
     DWORD pid;
     DWORD originalPriority;
+    ULONG originalMemoryPriority;
 } DepressedProcess;
 
 static BOOL g_gameModeActive = FALSE;
@@ -397,8 +398,29 @@ static void DepressBackgroundProcesses(DWORD gamePid) {
                     if (SetPriorityClass(hProc, IDLE_PRIORITY_CLASS)) {
                         g_depressedProcs[g_depressedCount].pid = pid;
                         g_depressedProcs[g_depressedCount].originalPriority = priority;
+                        
+                        // Consultar la prioridad de memoria actual
+                        struct {
+                            ULONG MemoryPriority;
+                        } memPrio = { 0 };
+                        ULONG originalMemPrio = 5; // default normal
+                        if (GetProcessInformation(hProc, (PROCESS_INFORMATION_CLASS)5, &memPrio, sizeof(memPrio))) {
+                            originalMemPrio = memPrio.MemoryPriority;
+                        }
+                        g_depressedProcs[g_depressedCount].originalMemoryPriority = originalMemPrio;
                         g_depressedCount++;
-                        DBG("  [DEPRESS] %s (PID %lu) deprimido a IDLE\n", name, pid);
+                        DBG("  [DEPRESS] %s (PID %lu) deprimido a IDLE (Original Mem Prio: %lu)\n", name, pid, originalMemPrio);
+
+                        // Establecer la prioridad de memoria a 1 (VERY_LOW)
+                        struct {
+                            ULONG MemoryPriority;
+                        } memPrioNew;
+                        memPrioNew.MemoryPriority = 1;
+                        if (SetProcessInformation(hProc, (PROCESS_INFORMATION_CLASS)5, &memPrioNew, sizeof(memPrioNew))) {
+                            DBG("  [DEPRESS] %s (PID %lu) memoria deprimida a 1\n", name, pid);
+                        } else {
+                            DBG("  [DEPRESS] %s (PID %lu) fallo deprimir memoria (0x%lx)\n", name, pid, GetLastError());
+                        }
 
                         ULONG ioPriority = 0; // IoPriorityIdle
                         HMODULE hNtDll = GetModuleHandleW(L"ntdll.dll");
@@ -424,11 +446,23 @@ static void RestoreBackgroundProcesses() {
     for (int i = 0; i < g_depressedCount; i++) {
         DWORD pid = g_depressedProcs[i].pid;
         DWORD originalPriority = g_depressedProcs[i].originalPriority;
+        ULONG originalMemoryPriority = g_depressedProcs[i].originalMemoryPriority;
 
         HANDLE hProc = OpenProcess(PROCESS_SET_INFORMATION, FALSE, pid);
         if (hProc) {
             SetPriorityClass(hProc, originalPriority);
             
+            // Restaurar prioridad de memoria
+            struct {
+                ULONG MemoryPriority;
+            } memPrioRestore;
+            memPrioRestore.MemoryPriority = originalMemoryPriority;
+            if (SetProcessInformation(hProc, (PROCESS_INFORMATION_CLASS)5, &memPrioRestore, sizeof(memPrioRestore))) {
+                DBG("  [DEPRESS] PID %lu memoria restaurada a %lu\n", pid, originalMemoryPriority);
+            } else {
+                DBG("  [DEPRESS] PID %lu fallo restaurar memoria (0x%lx)\n", pid, GetLastError());
+            }
+
             ULONG ioPriority = 2; // IoPriorityNormal
             HMODULE hNtDll = GetModuleHandleW(L"ntdll.dll");
             if (hNtDll) {
@@ -890,6 +924,81 @@ static void ActivateLowLatencyProfile() {
     }
 }
 
+static void SetOptimizerCpuAffinity() {
+    DWORD returnedLength = 0;
+    GetLogicalProcessorInformationEx(RelationProcessorCore, NULL, &returnedLength);
+    if (returnedLength == 0) return;
+
+    PSYSTEM_LOGICAL_PROCESSOR_INFORMATION_EX pBuffer = (PSYSTEM_LOGICAL_PROCESSOR_INFORMATION_EX)malloc(returnedLength);
+    if (!pBuffer) return;
+
+    if (!GetLogicalProcessorInformationEx(RelationProcessorCore, pBuffer, &returnedLength)) {
+        free(pBuffer);
+        return;
+    }
+
+    BYTE maxEfficiencyClass = 0;
+    DWORD_PTR fullSystemMask = 0;
+    DWORD_PTR pCoresMask = 0;
+    BOOL hasHybridCores = FALSE;
+
+    DWORD offset = 0;
+    while (offset < returnedLength) {
+        PSYSTEM_LOGICAL_PROCESSOR_INFORMATION_EX pCurr = (PSYSTEM_LOGICAL_PROCESSOR_INFORMATION_EX)((BYTE*)pBuffer + offset);
+        if (pCurr->Relationship == RelationProcessorCore) {
+            BYTE effClass = pCurr->Processor.EfficiencyClass;
+            if (effClass > maxEfficiencyClass) {
+                maxEfficiencyClass = effClass;
+            }
+        }
+        offset += pCurr->Size;
+    }
+
+    if (maxEfficiencyClass > 0) {
+        hasHybridCores = TRUE;
+    }
+
+    offset = 0;
+    while (offset < returnedLength) {
+        PSYSTEM_LOGICAL_PROCESSOR_INFORMATION_EX pCurr = (PSYSTEM_LOGICAL_PROCESSOR_INFORMATION_EX)((BYTE*)pBuffer + offset);
+        if (pCurr->Relationship == RelationProcessorCore) {
+            if (pCurr->Processor.GroupCount > 0) {
+                DWORD_PTR coreMask = pCurr->Processor.GroupMask[0].Mask;
+                fullSystemMask |= coreMask;
+
+                if (hasHybridCores) {
+                    if (pCurr->Processor.EfficiencyClass == maxEfficiencyClass) {
+                        pCoresMask |= coreMask;
+                    }
+                }
+            }
+        }
+        offset += pCurr->Size;
+    }
+    free(pBuffer);
+
+    DWORD_PTR finalMask = 0;
+    if (hasHybridCores) {
+        DWORD_PTR eCoresMask = fullSystemMask & ~pCoresMask;
+        if (eCoresMask != 0) {
+            finalMask = eCoresMask;
+            DBG("  [OPTIMIZER AFFINITY] CPU Hibrida. Afinamiento a E-Cores (mascara: 0x%p)\n", (void*)finalMask);
+        }
+    }
+
+    if (finalMask == 0) {
+        // CPU Homogenea o fallo al aislar E-Cores: afinar a Core 0
+        finalMask = 1; // Core 0
+        DBG("  [OPTIMIZER AFFINITY] CPU Homogenea. Afinamiento a Core 0 (mascara: 0x%p)\n", (void*)finalMask);
+    }
+
+    if (SetProcessAffinityMask(GetCurrentProcess(), finalMask)) {
+        DBG("  [OPTIMIZER AFFINITY] Afinidad del optimizador fijada correctamente.\n");
+    } else {
+        DBG("  [OPTIMIZER AFFINITY] Fallo al establecer afinidad del optimizador (0x%lx).\n", GetLastError());
+    }
+}
+
 
 //  PUNTO DE ENTRADA
 // ==============================================================
@@ -938,6 +1047,7 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine
 
     ApplyGlobalTimerResolution();
     ActivateLowLatencyProfile();
+    SetOptimizerCpuAffinity();
     g_uShellRestartMsg = RegisterWindowMessageW(L"TaskbarCreated");
     g_hInstance = hInstance;
     const wchar_t CLASS_NAME[] = L"RS_TrayOptimizerClass";

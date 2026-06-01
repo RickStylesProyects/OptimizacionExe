@@ -255,37 +255,40 @@ fn main() {
     println!("======================================================");
     reset_color();
 
-    // ── Paso 1: Loopback MTU ────────────────────────────────────────────
-    println!("\n[1/8] Optimizando parametros globales de Loopback...");
+    // ── Paso 1: Registro base (.reg) ────────────────────────────────────
+    println!("\n[1/9] Aplicando registro base stable (RegEnhancer)...");
+    apply_embedded_registry();
+
+    // ── Paso 2: Loopback MTU ────────────────────────────────────────────
+    println!("\n[2/9] Optimizando parametros globales de Loopback...");
     optimize_loopback();
 
-    // ── Paso 2: Algoritmo de congestion TCP (CTCP) ─────────────────────
-    println!("\n[2/8] Configurando algoritmo de congestion TCP...");
+    // ── Paso 3: Algoritmo de congestion TCP (CTCP) ─────────────────────
+    println!("\n[3/9] Configurando algoritmo de congestion TCP...");
     apply_congestion_providers();
 
-    // ── Paso 3: Parametros TCP globales ─────────────────────────────────
-    println!("\n[3/8] Ajustando parametros TCP globales...");
+    // ── Paso 4: Parametros TCP globales ─────────────────────────────────
+    println!("\n[4/9] Ajustando parametros TCP globales...");
     apply_tcp_global_optimizations();
 
-    // ── Paso 4: Offloads de adaptadores (RSC, LSO, RSS) ────────────────
-    println!("\n[4/8] Optimizando offloads de adaptadores de red...");
+    // ── Paso 5: Offloads de adaptadores (RSC, LSO, RSS) ────────────────
+    println!("\n[5/9] Optimizando offloads de adaptadores de red...");
     apply_adapter_offload_tweaks();
 
-    // ── Paso 5: Propiedades avanzadas de NIC (buffers, IRQ, EEE, etc.) ─
-    println!("\n[5/8] Ajustando propiedades avanzadas de NIC...");
+    // ── Paso 6: Propiedades avanzadas de NIC (buffers, IRQ, EEE, etc.) ─
+    println!("\n[6/9] Ajustando propiedades avanzadas de NIC...");
     apply_nic_advanced_tweaks();
 
-    // ── Paso 6: Firewall (bloqueo de telemetria) ────────────────────────
-    println!("\n[6/8] Configurando Firewall (bloqueo de telemetria)...");
+    // ── Paso 7: Firewall (bloqueo de telemetria) ────────────────────────
+    println!("\n[7/9] Configurando Firewall (bloqueo de telemetria)...");
     apply_firewall_rules();
 
-    // ── Paso 7: Hardware (MSI, BCD, CPU, DWM, MMCSS, IRQ affinity) ────
-    println!("\n[7/8] Detectando y optimizando hardware...");
+    // ── Paso 8: Hardware (MSI, BCD, CPU, DWM, MMCSS, IRQ affinity) ────
+    println!("\n[8/9] Detectando y optimizando hardware...");
     apply_dynamic_hardware_tweaks();
 
-    // ── Paso 8: Registro + RAM Optimizer ────────────────────────────────
-    println!("\n[8/8] Aplicando registro base e instalando RAM Optimizer...");
-    apply_embedded_registry();
+    // ── Paso 9: RAM Optimizer ───────────────────────────────────────────
+    println!("\n[9/9] Instalando y ejecutando RAM Optimizer...");
     install_and_run_ram_optimizer();
 
     // ── Estado final ────────────────────────────────────────────────────
@@ -652,12 +655,21 @@ fn apply_nic_advanced_tweaks() {
             !eee_ok,
         );
 
-        // ── RSS Queues → MAX ────────────────────────────────────────────
-        //    Mas colas RSS distribuyen mejor el procesamiento entre nucleos.
+        // ── RSS Queues → DYNAMIC TAILORED TO CPU CORES ────────────────────────────────────────────
+        //    Mas colas RSS distribuyen mejor el procesamiento entre nucleos, pero demasiadas colas
+        //    pueden causar cache bouncing. El número óptimo es min(Cores / 2, MaxNICQueues), clampado entre 2 y 8.
         if let Some(max_queues) = get_nic_property_max(adapter, "*NumRssQueues") {
-            let ok = set_nic_property(adapter, "*NumRssQueues", max_queues);
+            let cores = std::thread::available_parallelism()
+                .map(|n| n.get())
+                .unwrap_or(4);
+            let mut optimal_queues = (cores / 2) as u32;
+            if optimal_queues < 2 { optimal_queues = 2; }
+            if optimal_queues > 8 { optimal_queues = 8; }
+            if optimal_queues > max_queues { optimal_queues = max_queues; }
+
+            let ok = set_nic_property(adapter, "*NumRssQueues", optimal_queues);
             print_status_line(
-                &format!("RSS Queues = {} [{}]", max_queues, adapter),
+                &format!("Colas RSS = {} (Clase {} cores) [{}]", optimal_queues, cores, adapter),
                 ok,
                 !ok,
             );
@@ -862,43 +874,169 @@ try {{
 }}
 
 try {{
+    bcdedit /set useplatformclock no | Out-Null
+    Add-Log 'INFO' 'BCD' 'useplatformclock = no (Reloj TSC forzado)'
+}} catch {{
+    Add-Log 'WARN' 'BCD' 'No se pudo aplicar useplatformclock' 'WARN'
+}}
+
+try {{
+    # ── Desactivar Paginación de 5 Niveles (Address57 translation overhead bypass)
+    bcdedit /set linearaddress57 OptOut | Out-Null
+    Add-Log 'INFO' 'BCD' 'linearaddress57 = OptOut (Paginacion de 5 niveles desactivada)'
+}} catch {{
+    Add-Log 'WARN' 'BCD' 'No se pudo aplicar linearaddress57' 'WARN'
+}}
+
+try {{
+    # ── Desactivar inicio de Virtual Secure Mode (VBS/Core Isolation boot bypass)
+    bcdedit /set vsmlaunchtype Off | Out-Null
+    Add-Log 'INFO' 'BCD' 'vsmlaunchtype = Off (VBS/Core Isolation desactivado al inicio)'
+}} catch {{
+    Add-Log 'WARN' 'BCD' 'No se pudo desactivar vsmlaunchtype' 'WARN'
+}}
+
+try {{
     bcdedit /set nx OptIn | Out-Null
     Add-Log 'INFO' 'BCD' 'DEP = OptIn'
 }} catch {{
     Add-Log 'WARN' 'BCD' 'No se pudo ajustar DEP' 'WARN'
 }}
 
-# ── CPU Heterogeneous Policy ───────────────────────────────────────────────
 try {{
-    $build = [System.Environment]::OSVersion.Version.Build
-    if ($build -ge 19041 -and $build -lt 22000) {{
-        $GUID_HETERO = '7f2f5cfa-f10c-4823-b5e1-e93ae85f46b5'
-        $GUID_SCHED  = '93b8b6dc-0698-4d1c-9ee4-0644e900c85d'
-        powercfg -setacvalueindex SCHEME_CURRENT SUB_PROCESSOR $GUID_HETERO 3 | Out-Null
-        powercfg -setacvalueindex SCHEME_CURRENT SUB_PROCESSOR $GUID_SCHED 0 | Out-Null
-        powercfg -setactive SCHEME_CURRENT | Out-Null
-        Add-Log 'INFO' 'CPU' 'Windows 10 detectado - HeteroPolicy 3 aplicada'
-    }} elseif ($build -ge 22000) {{
-        Add-Log 'INFO' 'CPU' 'Windows 11 detectado - se respeta Thread Director'
-    }} else {{
-        Add-Log 'WARN' 'CPU' ('Build no contemplada: ' + $build) 'WARN'
-    }}
+    bcdedit /set x2apicpolicy Enable | Out-Null
+    Add-Log 'INFO' 'BCD' 'x2apicpolicy = Enable (Extended APIC habilitado)'
 }} catch {{
-    Add-Log 'WARN' 'CPU' 'No se pudo evaluar la politica heterogenea' 'WARN'
+    Add-Log 'WARN' 'BCD' 'No se pudo aplicar x2apicpolicy' 'WARN'
 }}
 
-# ── High Performance Power Plan ────────────────────────────────────────────
 try {{
-    $highPerf = powercfg -list | Select-String '8c5e7fda-e8bf-4a96-9a85-a6e23a8c635c'
-    if ($highPerf) {{
-        powercfg -setactive 8c5e7fda-e8bf-4a96-9a85-a6e23a8c635c | Out-Null
-        Add-Log 'INFO' 'POWER' 'Plan Alto Rendimiento activado'
-    }} else {{
-        Add-Log 'INFO' 'POWER' 'Plan Alto Rendimiento no disponible'
-    }}
+    bcdedit /set tscsyncpolicy Enhanced | Out-Null
+    Add-Log 'INFO' 'BCD' 'tscsyncpolicy = Enhanced (Sincronizacion TSC forzada)'
 }} catch {{
-    Add-Log 'WARN' 'POWER' 'No se pudo cambiar plan de energia' 'WARN'
+    Add-Log 'WARN' 'BCD' 'No se pudo aplicar tscsyncpolicy' 'WARN'
 }}
+
+try {{
+    bcdedit /set usephysicaldestination yes | Out-Null
+    Add-Log 'INFO' 'BCD' 'usephysicaldestination = yes (APIC direccionamiento fisico)'
+}} catch {{
+    Add-Log 'WARN' 'BCD' 'No se pudo aplicar usephysicaldestination' 'WARN'
+}}
+
+try {{
+    bcdedit /set firstmegabytepolicy UseAll | Out-Null
+    Add-Log 'INFO' 'BCD' 'firstmegabytepolicy = UseAll (Primer megabyte de RAM activo)'
+}} catch {{
+    Add-Log 'WARN' 'BCD' 'No se pudo aplicar firstmegabytepolicy' 'WARN'
+}}
+
+# ── Windows Memory Management & Compression Tuning ─────────────────────────
+try {{
+    # ── Desactivar compresión de memoria (MMAgent Memory Compression Off)
+    Disable-MMAgent -MemoryCompression | Out-Null
+    Add-Log 'INFO' 'KERNEL' 'MemoryCompression = OFF (Compresion de RAM desactivada)'
+}} catch {{
+    Add-Log 'WARN' 'KERNEL' 'No se pudo desactivar la compresion de memoria' 'WARN'
+}}
+
+try {{
+    # ── Desactivar VBS e Integridad de Memoria (HVCI) en el Registro
+    $vbsPath = "HKLM:\System\CurrentControlSet\Control\DeviceGuard"
+    if (!(Test-Path $vbsPath)) {{ New-Item -Path $vbsPath -Force | Out-Null }}
+    New-ItemProperty -Path $vbsPath -Name "EnableVirtualizationBasedSecurity" -Value 0 -PropertyType DWord -Force | Out-Null
+    
+    $hvciPath = "HKLM:\System\CurrentControlSet\Control\DeviceGuard\Scenarios\HypervisorEnforcedCodeIntegrity"
+    if (!(Test-Path $hvciPath)) {{ New-Item -Path $hvciPath -Force | Out-Null }}
+    New-ItemProperty -Path $hvciPath -Name "Enabled" -Value 0 -PropertyType DWord -Force | Out-Null
+    Add-Log 'INFO' 'KERNEL' 'HVCI / VBS deshabilitado en Registro'
+}} catch {{
+    Add-Log 'WARN' 'KERNEL' 'No se pudo deshabilitar VBS/HVCI en el Registro' 'WARN'
+}}
+
+try {{
+    # ── Forzar Kernel y Controladores (Drivers) a RAM física (DisablePagingExecutive)
+    $mmPath = "HKLM:\System\CurrentControlSet\Control\Session Manager\Memory Management"
+    New-ItemProperty -Path $mmPath -Name "DisablePagingExecutive" -Value 1 -PropertyType DWord -Force | Out-Null
+    Add-Log 'INFO' 'KERNEL' 'DisablePagingExecutive = 1 (Kernel y Controladores en RAM)'
+}} catch {{
+    Add-Log 'WARN' 'KERNEL' 'No se pudo aplicar DisablePagingExecutive' 'WARN'
+}}
+
+# ── Pagefile Optimization ──────────────────────────────────────────────────
+try {{
+    $ramBytes = (Get-CimInstance Win32_ComputerSystem).TotalPhysicalMemory
+    $ramGB = [Math]::Round($ramBytes / 1GB)
+    
+    if ($ramGB -ge 32) {{ $size = 4096 }}
+    elseif ($ramGB -ge 16) {{ $size = 8192 }}
+    else {{ $size = 12288 }}
+    
+    $cs = Get-CimInstance Win32_ComputerSystem
+    if ($cs.AutomaticManagedPagefile) {{
+        $cs.AutomaticManagedPagefile = $false
+        Set-CimInstance -CimInstance $cs -ErrorAction Stop | Out-Null
+    }}
+    
+    $pf = Get-CimInstance Win32_PageFileSetting
+    if ($pf) {{
+        $pf.InitialSize = $size
+        $pf.MaximumSize = $size
+        Set-CimInstance -CimInstance $pf -ErrorAction Stop | Out-Null
+    }} else {{
+        New-CimInstance -ClassName Win32_PageFileSetting -Property @{{ Name = 'C:\pagefile.sys'; InitialSize = $size; MaximumSize = $size }} -ErrorAction Stop | Out-Null
+    }}
+    Add-Log 'INFO' 'PAGING' ("Pagefile estatico optimizado a " + $size + " MB (RAM: " + $ramGB + " GB)")
+}} catch {{
+    Add-Log 'WARN' 'PAGING' 'No se pudo configurar el archivo de paginacion estatico' 'WARN'
+}}
+
+# ── NTFS File System Optimization ──────────────────────────────────────────
+try {{
+    fsutil behavior set disablelastaccess 1 | Out-Null
+    fsutil behavior set disable8dot3 1 | Out-Null
+    fsutil behavior set memoryusage 2 | Out-Null
+    
+    $ramBytes = (Get-CimInstance Win32_ComputerSystem).TotalPhysicalMemory
+    $ramGB = [Math]::Round($ramBytes / 1GB)
+    if ($ramGB -ge 32) {{ $mftZoneVal = 4 }}
+    elseif ($ramGB -ge 16) {{ $mftZoneVal = 3 }}
+    else {{ $mftZoneVal = 2 }}
+    
+    fsutil behavior set mftzone $mftZoneVal | Out-Null
+    Add-Log 'INFO' 'NTFS' ("NTFS optimizado: LastAccess=OFF, 8dot3=OFF, MemoryUsage=2, MftZone=" + $mftZoneVal)
+}} catch {{
+    Add-Log 'WARN' 'NTFS' 'No se pudieron aplicar todas las optimizaciones NTFS' 'WARN'
+}}
+
+# ── CPU Kernel Scheduling (Win32PrioritySeparation = 38) ───────────────────
+try {{
+    Set-ItemProperty -Path "HKLM:\System\CurrentControlSet\Control\PriorityControl" -Name "Win32PrioritySeparation" -Value 38 | Out-Null
+    Add-Log 'INFO' 'KERNEL' 'Win32PrioritySeparation optimizado a 38 (0x26 - Foreground boost)'
+}} catch {{
+    Add-Log 'WARN' 'KERNEL' 'No se pudo aplicar Win32PrioritySeparation' 'WARN'
+}}
+
+# ── Speculative Execution Control (Spectre/Meltdown mitigations bypass) ────
+try {{
+    $path = "HKLM:\SYSTEM\CurrentControlSet\Control\Session Manager\Memory Management"
+    New-ItemProperty -Path $path -Name "FeatureSettingsOverride" -Value 3 -PropertyType DWord -Force | Out-Null
+    New-ItemProperty -Path $path -Name "FeatureSettingsOverrideMask" -Value 3 -PropertyType DWord -Force | Out-Null
+    Add-Log 'INFO' 'KERNEL' 'Mitigaciones de CPU (Spectre/Meltdown) desactivadas para rendimiento'
+}} catch {{
+    Add-Log 'WARN' 'KERNEL' 'No se pudieron desactivar las mitigaciones de CPU' 'WARN'
+}}
+
+# ── GPU Hardware-Accelerated Scheduling (HAGS) & TDR Delay ──────────────────
+try {{
+    $path = "HKLM:\System\CurrentControlSet\Control\GraphicsDrivers"
+    New-ItemProperty -Path $path -Name "HwSchMode" -Value 2 -PropertyType DWord -Force | Out-Null
+    New-ItemProperty -Path $path -Name "TdrDelay" -Value 10 -PropertyType DWord -Force | Out-Null
+    Add-Log 'INFO' 'KERNEL' 'GPU Tuning: HAGS forzado y TdrDelay fijados'
+}} catch {{
+    Add-Log 'WARN' 'KERNEL' 'No se pudieron aplicar ajustes avanzados de GPU' 'WARN'
+}}
+
 
 # ── MSI Mode for Devices ───────────────────────────────────────────────────
 function Enable-MsiForDevice {{
@@ -1052,6 +1190,15 @@ try {{
     Add-Log 'INFO' 'POWER' 'PowerThrottlingOff = 1'
 }} catch {{
     Add-Log 'WARN' 'POWER' 'No se pudo desactivar Power Throttling' 'WARN'
+}}
+
+try {{
+    $powerPath = 'HKLM:\SYSTEM\CurrentControlSet\Control\Power'
+    if (!(Test-Path $powerPath)) {{ New-Item -Path $powerPath -Force | Out-Null }}
+    New-ItemProperty -Path $powerPath -Name 'DisableInterruptSteering' -Value 1 -PropertyType DWord -Force | Out-Null
+    Add-Log 'INFO' 'POWER' 'DisableInterruptSteering = 1 (Interrupt steering desactivado)'
+}} catch {{
+    Add-Log 'WARN' 'POWER' 'No se pudo aplicar DisableInterruptSteering' 'WARN'
 }}
 "#,
         log_path = log_path_ps
