@@ -119,6 +119,12 @@ static const char* BLACKLIST[] = {
     "wmiprvse.exe", "searchindexer.exe", "msiexec.exe", "audiodg.exe",
     "code.exe", "devenv.exe", "taskmgr.exe",
     "wallpaper32.exe", "wallpaper64.exe", "wallpaperservice32.exe",
+    "vivaldi.exe", "chromium.exe", "browser.exe", "qbittorrent.exe",
+    "utorrent.exe", "megasync.exe", "onedrive.exe", "awcc.background.server.exe",
+    "awcc.exe", "lghub.exe", "icue.exe", "epicgameslauncher.exe",
+    "battlenet.exe", "phoneexperiencehost.exe", "crossdeviceservice.exe",
+    "nahimicsvc32.exe", "dptf_helper.exe", "rave.exe",
+    "steelseriessonar.exe", "hyphelper.exe",
     NULL
 };
 
@@ -343,6 +349,12 @@ static BOOL IsDepressable(const char* name) {
         "chrome.exe", "firefox.exe", "msedge.exe", "opera.exe", "brave.exe",
         "discord.exe", "spotify.exe", "steamwebhelper.exe", "msedgewebview2.exe",
         "code.exe", "devenv.exe", "wallpaper32.exe", "wallpaper64.exe",
+        "vivaldi.exe", "chromium.exe", "browser.exe", "qbittorrent.exe",
+        "utorrent.exe", "megasync.exe", "onedrive.exe", "awcc.background.server.exe",
+        "awcc.exe", "lghub.exe", "icue.exe", "epicgameslauncher.exe",
+        "battlenet.exe", "phoneexperiencehost.exe", "crossdeviceservice.exe",
+        "nahimicsvc32.exe", "dptf_helper.exe", "rave.exe",
+        "steelseriessonar.exe", "hyphelper.exe",
         NULL
     };
     for (int i = 0; DEPRESS_LIST[i] != NULL; i++) {

@@ -980,13 +980,14 @@ try {{
     Add-Log 'WARN' 'NTFS' 'No se pudieron aplicar todas las optimizaciones NTFS' 'WARN'
 }}
 
-# ── CPU Kernel Scheduling (Win32PrioritySeparation = 38) ───────────────────
+# ── CPU Kernel Scheduling (Win32PrioritySeparation = 42) ───────────────────
 try {{
-    Set-ItemProperty -Path "HKLM:\System\CurrentControlSet\Control\PriorityControl" -Name "Win32PrioritySeparation" -Value 38 | Out-Null
-    Add-Log 'INFO' 'KERNEL' 'Win32PrioritySeparation optimizado a 38 (0x26 - Foreground boost)'
+    Set-ItemProperty -Path "HKLM:\System\CurrentControlSet\Control\PriorityControl" -Name "Win32PrioritySeparation" -Value 42 | Out-Null
+    Add-Log 'INFO' 'KERNEL' 'Win32PrioritySeparation optimizado a 42 (0x2A - Short, Fixed, High Boost)'
 }} catch {{
     Add-Log 'WARN' 'KERNEL' 'No se pudo aplicar Win32PrioritySeparation' 'WARN'
 }}
+
 
 # ── Speculative Execution Control (Spectre/Meltdown mitigations bypass) ────
 try {{
