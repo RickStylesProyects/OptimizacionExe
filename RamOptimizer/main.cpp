@@ -1008,7 +1008,7 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine
     {
         FILE* f = fopen("C:\\Users\\WinterOS\\Desktop\\Programacion\\OptimizacionExe\\rs_ram_optimizer_debug.log", "w");
         if (f) {
-            fprintf(f, "=== RS RAM Optimizer v1.C - MODO DEBUG ===\n");
+            fprintf(f, "=== RS RAM Optimizer v1.D - MODO DEBUG ===\n");
             fprintf(f, "Este archivo muestra el funcionamiento interno en tiempo real.\n");
             fprintf(f, "Cambiar DEBUG_MODE a 0 en el codigo para produccion.\n\n\n");
             fclose(f);
@@ -1081,7 +1081,7 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine
     if (g_nid.hIcon == NULL)
         g_nid.hIcon = LoadIcon(NULL, IDI_APPLICATION);
 
-    lstrcpyW(g_nid.szTip, L"RS RAM Optimizer v1.C");
+    lstrcpyW(g_nid.szTip, L"RS RAM Optimizer v1.D");
     Shell_NotifyIconW(NIM_ADD, &g_nid);
 
     DBG("Icono de bandeja creado. Intervalo: %d seg\n\n", OPTIMIZE_INTERVAL / 1000);

@@ -250,7 +250,7 @@ fn main() {
 
     set_color_cyan();
     println!("======================================================");
-    println!("       RS Optimizer v1.C                               ");
+    println!("       RS Optimizer v1.D                               ");
     println!("       by RickStyles                                   ");
     println!("======================================================");
     reset_color();
