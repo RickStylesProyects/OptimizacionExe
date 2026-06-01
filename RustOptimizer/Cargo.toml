@@ -2,7 +2,7 @@
 name = "rs_optimizer"
 version = "1.0.0"
 edition = "2021"
-authors = ["RickStyles"]
+authors = ["MapleProjects"]
 description = "RS Optimizer natively compiled to Rust"
 
 [dependencies]

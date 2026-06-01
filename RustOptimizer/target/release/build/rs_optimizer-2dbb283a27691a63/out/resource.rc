@@ -1,21 +1,23 @@
 #pragma code_page(65001)
 1 VERSIONINFO
+FILESUBTYPE 0x0
 FILEFLAGSMASK 0x3f
 FILEVERSION 1, 0, 0, 0
 FILEOS 0x40004
-FILESUBTYPE 0x0
-PRODUCTVERSION 1, 0, 0, 0
 FILETYPE 0x1
 FILEFLAGS 0x0
+PRODUCTVERSION 1, 0, 0, 0
 {
 BLOCK "StringFileInfo"
 {
 BLOCK "000004b0"
 {
-VALUE "ProductVersion", "1.0.0"
-VALUE "ProductName", "rs_optimizer"
+VALUE "ProductName", "RS Optimizer"
+VALUE "FileDescription", "RS Optimizer natively compiled to Rust"
+VALUE "CompanyName", "MapleProjects"
 VALUE "FileVersion", "1.0.0"
-VALUE "FileDescription", "rs_optimizer"
+VALUE "LegalCopyright", "Copyright (c) 2026 MapleProjects"
+VALUE "ProductVersion", "1.0.0"
 }
 }
 BLOCK "VarFileInfo" {

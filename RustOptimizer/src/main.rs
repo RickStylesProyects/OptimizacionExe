@@ -251,7 +251,7 @@ fn main() {
     set_color_cyan();
     println!("======================================================");
     println!("       RS Optimizer v1.D                               ");
-    println!("       by RickStyles                                   ");
+    println!("       by MapleProjects                                ");
     println!("======================================================");
     reset_color();
 
@@ -1335,10 +1335,14 @@ fn install_and_run_ram_optimizer() {
     io::stdout().flush().unwrap();
 
     if let Ok(appdata) = env::var("APPDATA") {
-        // 1. Eliminar la carpeta física antigua de RickStyles/RS_Optimizer (con guiones bajos)
-        let old_folder = PathBuf::from(&appdata).join("RickStyles").join("RS_Optimizer");
-        if old_folder.exists() {
-            let _ = fs::remove_dir_all(&old_folder);
+        // 1. Eliminar la carpeta física antigua de RickStyles/RS_Optimizer (con guiones bajos) y RickStyles/RSOptimizer
+        let old_folder1 = PathBuf::from(&appdata).join("RickStyles").join("RS_Optimizer");
+        if old_folder1.exists() {
+            let _ = fs::remove_dir_all(&old_folder1);
+        }
+        let old_folder2 = PathBuf::from(&appdata).join("RickStyles").join("RSOptimizer");
+        if old_folder2.exists() {
+            let _ = fs::remove_dir_all(&old_folder2);
         }
 
         // 2. Limpieza exhaustiva de cualquier clave Run residual en el registro (HKCU y HKLM)
@@ -1347,7 +1351,8 @@ fn install_and_run_ram_optimizer() {
             "RSRAMOptimizer",
             "RSRamOptimizer",
             "RS RAM Optimizer",
-            "RickStyles RAM Optimizer"
+            "RickStyles RAM Optimizer",
+            "MapleProjects RAM Optimizer"
         ];
         
         for name in &registry_names {
@@ -1367,7 +1372,8 @@ fn install_and_run_ram_optimizer() {
             "RSRAMOptimizer",
             "RSRamOptimizer",
             "RS RAM Optimizer",
-            "RickStyles RAM Optimizer"
+            "RickStyles RAM Optimizer",
+            "MapleProjects RAM Optimizer"
         ];
 
         for tname in &task_names {
@@ -1399,7 +1405,7 @@ fn install_and_run_ram_optimizer() {
         print!("  Extrayendo RAM Optimizer... ");
         io::stdout().flush().unwrap();
 
-        let rs_folder = PathBuf::from(&appdata).join("RickStyles").join("RSOptimizer");
+        let rs_folder = PathBuf::from(&appdata).join("MapleProjects").join("RSOptimizer");
         let _ = fs::create_dir_all(&rs_folder);
         let target_exe = rs_folder.join("RS RAM Optimizer.exe");
 

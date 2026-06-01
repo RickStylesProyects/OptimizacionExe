@@ -9,6 +9,10 @@ fn main() {
         let mut res = winres::WindowsResource::new();
         res.set_icon("../Icono.ico");
         res.set_manifest_file("../app.manifest");
+        res.set("CompanyName", "MapleProjects");
+        res.set("ProductName", "RS Optimizer");
+        res.set("FileDescription", "RS Optimizer natively compiled to Rust");
+        res.set("LegalCopyright", "Copyright (c) 2026 MapleProjects");
         res.compile().unwrap();
     }
 
