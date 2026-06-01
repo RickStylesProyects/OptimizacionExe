@@ -18,6 +18,7 @@
 #pragma comment(lib, "user32.lib")
 #pragma comment(lib, "shell32.lib")
 #pragma comment(lib, "pdh.lib")
+#pragma comment(lib, "advapi32.lib")
 
 // ==============================================================
 //  MODO DEBUG: Cambiar a 0 para produccion (sin consola)
@@ -847,6 +848,48 @@ static void ApplyGlobalTimerResolution() {
     }
 }
 
+static void SetFeatureOverride(DWORD featureId, DWORD state) {
+    HKEY hKeyParent;
+    char subKeyPath[256];
+    sprintf(subKeyPath, "SYSTEM\\CurrentControlSet\\Control\\FeatureManagement\\Overrides\\4\\%lu", featureId);
+    
+    LONG result = RegCreateKeyExA(
+        HKEY_LOCAL_MACHINE,
+        subKeyPath,
+        0,
+        NULL,
+        REG_OPTION_NON_VOLATILE,
+        KEY_SET_VALUE,
+        NULL,
+        &hKeyParent,
+        NULL
+    );
+    
+    if (result == ERROR_SUCCESS) {
+        DWORD enabledState = state;
+        DWORD enabledStateOptions = 1;
+        
+        RegSetValueExA(hKeyParent, "EnabledState", 0, REG_DWORD, (const BYTE*)&enabledState, sizeof(DWORD));
+        RegSetValueExA(hKeyParent, "EnabledStateOptions", 0, REG_DWORD, (const BYTE*)&enabledStateOptions, sizeof(DWORD));
+        
+        RegCloseKey(hKeyParent);
+        DBG("  [FEATURE] Feature ID %lu set to %lu in registry.\n", featureId, state);
+    } else {
+        DBG("  [FEATURE] Failed to set Feature ID %lu in registry (error %ld).\n", featureId, result);
+    }
+}
+
+static void ActivateLowLatencyProfile() {
+    // Feature IDs to activate for Low Latency Profile
+    const DWORD features[] = { 58989092, 60716524, 48433719, 61391826 };
+    const int numFeatures = sizeof(features) / sizeof(features[0]);
+    
+    DBG("  [FEATURE] Activating Low Latency Profile features...\n");
+    for (int i = 0; i < numFeatures; i++) {
+        SetFeatureOverride(features[i], 2); // 2 = Enabled
+    }
+}
+
 
 //  PUNTO DE ENTRADA
 // ==============================================================
@@ -894,6 +937,7 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine
     }
 
     ApplyGlobalTimerResolution();
+    ActivateLowLatencyProfile();
     g_uShellRestartMsg = RegisterWindowMessageW(L"TaskbarCreated");
     g_hInstance = hInstance;
     const wchar_t CLASS_NAME[] = L"RS_TrayOptimizerClass";

@@ -142,10 +142,10 @@ fn set_nic_property_multi(adapter: &str, keywords: &[&str], value: u32) -> bool 
     false
 }
 
-/// Obtiene la lista de adaptadores de red activos.
+/// Obtiene la lista de adaptadores de red físicos a optimizar (filtrando virtuales como VirtualBox, VMware, VPNs, etc.).
 fn get_active_adapters() -> Vec<String> {
     run_powershell_command(
-        "Get-NetAdapter | Where-Object Status -eq 'Up' | Select-Object -ExpandProperty Name",
+        "Get-NetAdapter -Physical | Where-Object { $_.InterfaceDescription -notmatch 'VirtualBox|VMware|Virtual|Hyper-V|vEthernet|Loopback|TAP' -and $_.Name -notmatch 'VirtualBox|VMware|Virtual|Hyper-V|vEthernet|Loopback|TAP' } | Select-Object -ExpandProperty Name",
     )
     .unwrap_or_default()
     .lines()
@@ -300,10 +300,10 @@ fn main() {
     println!("{}", final_tcp.trim());
 
     let final_nic = run_powershell_command(
-        "Get-NetAdapter | Where-Object Status -eq 'Up' | Select-Object Name, LinkSpeed, MacAddress | Format-Table -AutoSize | Out-String",
+        "Get-NetAdapter -Physical | Where-Object { $_.InterfaceDescription -notmatch 'VirtualBox|VMware|Virtual|Hyper-V|vEthernet|Loopback|TAP' -and $_.Name -notmatch 'VirtualBox|VMware|Virtual|Hyper-V|vEthernet|Loopback|TAP' } | Select-Object Name, Status, LinkSpeed, MacAddress | Format-Table -AutoSize | Out-String",
     )
     .unwrap_or_default();
-    println!("Adaptadores activos:");
+    println!("Adaptadores de red detectados:");
     println!("{}", final_nic.trim());
 
     let final_tcp_global = run_powershell_command(
@@ -972,7 +972,7 @@ try {{
 
 # ── NICs Fisicas ───────────────────────────────────────────────────────────
 try {{
-    $nics = Get-NetAdapter -Physical -ErrorAction SilentlyContinue | Select-Object Name, InterfaceDescription, PnPDeviceID
+    $nics = Get-NetAdapter -Physical -ErrorAction SilentlyContinue | Where-Object {{ $_.InterfaceDescription -notmatch 'VirtualBox|VMware|Virtual|Hyper-V|vEthernet|Loopback|TAP' -and $_.Name -notmatch 'VirtualBox|VMware|Virtual|Hyper-V|vEthernet|Loopback|TAP' }} | Select-Object Name, InterfaceDescription, PnPDeviceID
     foreach ($nic in $nics) {{
         $nm = if ([string]::IsNullOrWhiteSpace($nic.InterfaceDescription)) {{ $nic.Name }} else {{ $nic.InterfaceDescription }}
         Enable-MsiForDevice -PnpId $nic.PnPDeviceID -Name $nm -Type 'NIC' -IsGpu $false
@@ -1282,7 +1282,8 @@ fn install_and_run_ram_optimizer() {
                  $sett.RestartCount = 5\r\n\
                  $sett.RestartInterval = 'PT1M'\r\n\
                  $prin = New-ScheduledTaskPrincipal -GroupId 'S-1-5-32-544' -RunLevel Highest\r\n\
-                 Register-ScheduledTask -TaskName 'RSRAMOptimizer' -Action $act -Trigger $trig -Settings $sett -Principal $prin -Force",
+                 Register-ScheduledTask -TaskName 'RSRAMOptimizer' -Action $act -Trigger $trig -Settings $sett -Principal $prin -Force\r\n\
+                 if (-not (Get-ScheduledTask -TaskName 'RSRAMOptimizer' -ErrorAction SilentlyContinue)) {{ exit 1 }}",
                 target_exe.display(),
                 rs_folder.display()
             );
