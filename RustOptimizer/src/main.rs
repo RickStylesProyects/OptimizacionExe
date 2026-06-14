@@ -216,6 +216,217 @@ fn run_as_admin() -> bool {
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
+//  RESTAURACION DE SISTEMA
+// ═══════════════════════════════════════════════════════════════════════════
+
+fn restore_system_defaults() {
+    println!("\n  ── Ejecutando diagnostico y restauracion de estabilidad ──");
+
+    let temp_dir = env::temp_dir();
+    let script_path = temp_dir.join(format!("rsopt_restore_{}.ps1", std::process::id()));
+    let log_path = temp_dir.join(format!("rsopt_restore_{}.log", std::process::id()));
+    let log_path_ps = log_path.to_string_lossy().replace('\\', "\\\\");
+
+    let ps_script = format!(
+        r#"
+$ErrorActionPreference = 'SilentlyContinue'
+$LogPath = "{log_path}"
+
+function Add-Log {{
+    param([string]$Category, [string]$Status, [string]$Message)
+    $line = "$Category|$Status|$Message"
+    Add-Content -LiteralPath $LogPath -Value $line -Encoding UTF8
+}}
+
+Remove-Item -LiteralPath $LogPath -Force -ErrorAction SilentlyContinue
+New-Item -ItemType File -Path $LogPath -Force | Out-Null
+
+# 1. Image File Execution Options (IFEO)
+$apps = @('fontdrvhost.exe', 'lsass.exe', 'RuntimeBroker.exe', 'csrss.exe', 'explorer.exe', 'dwm.exe', 'sppsvc.exe', 'ctfmon.exe', 'sihost.exe')
+foreach ($app in $apps) {{
+    $path = "HKLM:\SOFTWARE\Microsoft\Windows NT\CurrentVersion\Image File Execution Options\$app\PerfOptions"
+    if (Test-Path $path) {{
+        try {{
+            Remove-Item -Path $path -Force -Recurse -ErrorAction Stop
+            Add-Log "IFEO $app" "OK" "Prioridades eliminadas en Registro"
+        }} catch {{
+            Add-Log "IFEO $app" "ERR" "Fallo al eliminar de Registro"
+        }}
+    }} else {{
+        Add-Log "IFEO $app" "SKIP" "No presente en Registro"
+    }}
+}}
+
+# 2. Memory Priorities for running processes
+$procNames = @('sihost', 'fontdrvhost', 'lsass', 'sppsvc', 'ctfmon', 'dwm')
+foreach ($name in $procNames) {{
+    $procs = Get-Process -Name $name -ErrorAction SilentlyContinue
+    if ($procs) {{
+        $okCount = 0
+        $errCount = 0
+        foreach ($p in $procs) {{
+            try {{
+                $p.PriorityClass = 'Normal'
+                $okCount++
+            }} catch {{
+                $errCount++
+            }}
+        }}
+        if ($errCount -gt 0) {{
+            Add-Log "Prioridad $name" "WARN" "Restaurados $okCount, fallaron $errCount"
+        }} else {{
+            Add-Log "Prioridad $name" "OK" "Prioridad restaurada a Normal ($okCount proc)"
+        }}
+    }} else {{
+        Add-Log "Prioridad $name" "SKIP" "Proceso no activo"
+    }}
+}}
+
+# 3. Segoe UI Fonts Registry
+$fontPath = "HKLM:\SOFTWARE\Microsoft\Windows NT\CurrentVersion\Fonts"
+$fonts = @{{
+    "Segoe UI (TrueType)" = "segoeui.ttf"
+    "Segoe UI Black (TrueType)" = "seguibl.ttf"
+    "Segoe UI Black Italic (TrueType)" = "seguibli.ttf"
+    "Segoe UI Bold (TrueType)" = "segoeuib.ttf"
+    "Segoe UI Bold Italic (TrueType)" = "segoeuiz.ttf"
+    "Segoe UI Emoji (TrueType)" = "seguiemj.ttf"
+    "Segoe UI Historic (TrueType)" = "seguihis.ttf"
+    "Segoe UI Italic (TrueType)" = "segoeuii.ttf"
+    "Segoe UI Light (TrueType)" = "segoeuil.ttf"
+    "Segoe UI Light Italic (TrueType)" = "segoeuili.ttf"
+    "Segoe UI Semibold (TrueType)" = "seguisb.ttf"
+    "Segoe UI Semibold Italic (TrueType)" = "seguisbi.ttf"
+    "Segoe UI Semilight (TrueType)" = "segoeuisl.ttf"
+    "Segoe UI Semilight Italic (TrueType)" = "segoeuisli.ttf"
+    "Segoe UI Symbol (TrueType)" = "seguisym.ttf"
+    "Segoe MDL2 Assets (TrueType)" = "segmdl2.ttf"
+    "Segoe Print (TrueType)" = "segoepr.ttf"
+    "Segoe Print Bold (TrueType)" = "segoeprb.ttf"
+    "Segoe Script (TrueType)" = "segoesc.ttf"
+    "Segoe Script Bold (TrueType)" = "segoescb.ttf"
+}}
+
+foreach ($fName in $fonts.Keys) {{
+    try {{
+        $curr = Get-ItemProperty -Path $fontPath -Name $fName -ErrorAction SilentlyContinue
+        if ($curr -and $curr.$fName -eq $fonts[$fName]) {{
+            Add-Log "Fuente $fName" "SKIP" "Ya configurada correctamente"
+        }} else {{
+            New-ItemProperty -Path $fontPath -Name $fName -Value $fonts[$fName] -PropertyType String -Force -ErrorAction Stop | Out-Null
+            Add-Log "Fuente $fName" "OK" "Fuente restaurada a $($fonts[$fName])"
+        }}
+    }} catch {{
+        Add-Log "Fuente $fName" "ERR" "No se pudo restaurar"
+    }}
+}}
+
+# 4. FontSubstitutes Segoe UI
+$subPath = "HKLM:\SOFTWARE\Microsoft\Windows NT\CurrentVersion\FontSubstitutes"
+if (Get-ItemProperty -Path $subPath -Name "Segoe UI" -ErrorAction SilentlyContinue) {{
+    try {{
+        Remove-ItemProperty -Path $subPath -Name "Segoe UI" -Force -ErrorAction Stop
+        Add-Log "Sustitucion Segoe UI" "OK" "Sustitucion eliminada"
+    }} catch {{
+        Add-Log "Sustitucion Segoe UI" "ERR" "Fallo al eliminar sustitucion"
+    }}
+}} else {{
+    Add-Log "Sustitucion Segoe UI" "SKIP" "Sustitucion no presente"
+}}
+
+# 5. BCD settings
+try {{
+    $bcd = bcdedit /enum
+    
+    if ($bcd -match "useplatformtick") {{
+        bcdedit /deletevalue useplatformtick | Out-Null
+        Add-Log "BCD useplatformtick" "OK" "Eliminado de la configuracion de arranque"
+    }} else {{
+        Add-Log "BCD useplatformtick" "SKIP" "No presente en BCD"
+    }}
+    
+    if ($bcd -match "tscsyncpolicy") {{
+        bcdedit /deletevalue tscsyncpolicy | Out-Null
+        Add-Log "BCD tscsyncpolicy" "OK" "Eliminado de la configuracion de arranque"
+    }} else {{
+        Add-Log "BCD tscsyncpolicy" "SKIP" "No presente en BCD"
+    }}
+}} catch {{
+    Add-Log "BCD Tweaks" "ERR" "Fallo al acceder o modificar BCD"
+}}
+"#,
+        log_path = log_path_ps
+    );
+
+    if let Err(e) = fs::write(&script_path, ps_script) {
+        set_color_red();
+        println!("  [ ERROR ] No se pudo crear el script de restauracion: {}", e);
+        reset_color();
+        return;
+    }
+
+    let output_result = Command::new("powershell")
+        .args(&[
+            "-NoProfile",
+            "-NonInteractive",
+            "-ExecutionPolicy",
+            "Bypass",
+            "-File",
+            script_path.to_str().unwrap(),
+        ])
+        .creation_flags(CREATE_NO_WINDOW)
+        .output();
+
+    let _ = fs::remove_file(&script_path);
+
+    if output_result.is_err() {
+        set_color_red();
+        println!("  [ ERROR ] Fallo total al ejecutar PowerShell para restaurar.");
+        reset_color();
+        return;
+    }
+
+    let log_content = fs::read_to_string(&log_path).unwrap_or_default();
+    let _ = fs::remove_file(&log_path);
+
+    for line in log_content.lines() {
+        let trimmed = line.trim();
+        if trimmed.is_empty() {
+            continue;
+        }
+        let parts: Vec<&str> = trimmed.split('|').collect();
+        if parts.len() < 3 {
+            continue;
+        }
+        let category = parts[0];
+        let status = parts[1];
+        let message = parts[2];
+
+        let desc = format!("Restaurando {} -> {}", category, message);
+        let ok = status == "OK";
+        let warn = status == "WARN" || status == "ERR";
+
+        print!("  {} ", desc);
+        for _ in 0..72_usize.saturating_sub(2 + desc.len()) {
+            print!(" ");
+        }
+        io::stdout().flush().unwrap();
+
+        if ok {
+            set_color_green();
+            println!("[ OK ]");
+        } else if warn {
+            set_color_yellow();
+            println!("[ AVISO / FALLÓ ]");
+        } else {
+            set_color_dark_gray();
+            println!("[ YA OK / NO APLICÓ ]");
+        }
+        reset_color();
+    }
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
 //  MAIN
 // ═══════════════════════════════════════════════════════════════════════════
 
@@ -254,6 +465,10 @@ fn main() {
     println!("       by MapleProjects                                ");
     println!("======================================================");
     reset_color();
+
+    // ── Restauracion de estabilidad ─────────────────────────────────────
+    println!("\n[Preparacion] Limpiando configuraciones inestables previas...");
+    restore_system_defaults();
 
     // ── Paso 1: Registro base (.reg) ────────────────────────────────────
     println!("\n[1/9] Aplicando registro base stable (RegEnhancer)...");
@@ -571,6 +786,18 @@ fn apply_adapter_offload_tweaks() {
             rss_ok,
             !rss_ok,
         );
+
+        // Packet Coalescing → OFF
+        let pc_cmd = format!(
+            "Set-NetAdapterAdvancedProperty -Name '{}' -RegistryKeyword '*PacketCoalescing' -RegistryValue 0 -ErrorAction SilentlyContinue",
+            adapter
+        );
+        let pc_ok = run_powershell_command(&pc_cmd).is_ok();
+        print_status_line(
+            &format!("Packet Coalescing deshabilitado [{}]", adapter),
+            pc_ok,
+            !pc_ok,
+        );
     }
 }
 
@@ -866,12 +1093,7 @@ try {{
     Add-Log 'WARN' 'BCD' 'No se pudo aplicar disabledynamictick' 'WARN'
 }}
 
-try {{
-    bcdedit /set useplatformtick yes | Out-Null
-    Add-Log 'INFO' 'BCD' 'useplatformtick = yes'
-}} catch {{
-    Add-Log 'WARN' 'BCD' 'No se pudo aplicar useplatformtick' 'WARN'
-}}
+
 
 try {{
     bcdedit /set useplatformclock no | Out-Null
@@ -895,12 +1117,7 @@ try {{
     Add-Log 'WARN' 'BCD' 'No se pudo ajustar DEP' 'WARN'
 }}
 
-try {{
-    bcdedit /set tscsyncpolicy Enhanced | Out-Null
-    Add-Log 'INFO' 'BCD' 'tscsyncpolicy = Enhanced (Sincronizacion TSC forzada)'
-}} catch {{
-    Add-Log 'WARN' 'BCD' 'No se pudo aplicar tscsyncpolicy' 'WARN'
-}}
+
 
 # ── Windows Memory Management & Compression Tuning ─────────────────────────
 try {{
@@ -1171,6 +1388,32 @@ try {{
     Add-Log 'INFO' 'POWER' 'DisableInterruptSteering = 1 (Interrupt steering desactivado)'
 }} catch {{
     Add-Log 'WARN' 'POWER' 'No se pudo aplicar DisableInterruptSteering' 'WARN'
+}}
+
+try {{
+    # ── Desactivar Hibernacion y Fast Startup
+    powercfg /hibernate off | Out-Null
+    $smPower = "HKLM:\SYSTEM\CurrentControlSet\Control\Session Manager\Power"
+    if (!(Test-Path $smPower)) {{ New-Item -Path $smPower -Force | Out-Null }}
+    New-ItemProperty -Path $smPower -Name "HiberbootEnabled" -Value 0 -PropertyType DWord -Force | Out-Null
+    Add-Log 'INFO' 'POWER' 'Hibernacion y Fast Startup desactivados'
+}} catch {{
+    Add-Log 'WARN' 'POWER' 'No se pudo desactivar hibernacion/fast startup' 'WARN'
+}}
+
+try {{
+    # ── Desactivar Core Parking (CPMinCores y CPMaxCores = 100)
+    powercfg /setacvalueindex SCHEME_CURRENT SUB_PROCESSOR 0cc5b647-c1df-4637-891a-dec35c318583 100 | Out-Null
+    powercfg /setacvalueindex SCHEME_CURRENT SUB_PROCESSOR ea062031-0e34-4ff1-9b6d-eb1059334028 100 | Out-Null
+    # ── Desactivar USB selective suspend
+    powercfg /SETACVALUEINDEX SCHEME_CURRENT SUB_USB 489a25f3-b52b-4f81-bd2c-27f147f52316 0 | Out-Null
+    # ── Desactivar PCIe LSPM
+    powercfg /SETACVALUEINDEX SCHEME_CURRENT SUB_PCIEXPRESS ee12f90e-d277-404b-b6da-f5ed15f0d0fc 0 | Out-Null
+    # ── Aplicar el esquema actual para refrescar
+    powercfg /setactive SCHEME_CURRENT | Out-Null
+    Add-Log 'INFO' 'POWER' 'Core Parking, USB Suspend y PCIe LSPM deshabilitados'
+}} catch {{
+    Add-Log 'WARN' 'POWER' 'No se pudieron aplicar politicas de energia avanzadas' 'WARN'
 }}
 "#,
         log_path = log_path_ps

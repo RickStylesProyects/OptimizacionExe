@@ -33,7 +33,7 @@
 #define ID_TRAY_EXIT        1002
 #define TIMER_OPTIMIZE      2001
 #define MAX_PROCS           1024
-#define OPTIMIZE_INTERVAL   5000  // 5 segundos en ms para pruebas de depuración
+#define OPTIMIZE_INTERVAL   15000  // 15 segundos en ms para reducir overhead de CPU
 #define CPU_SAMPLE_DELAY    500     // Delay entre muestras CPU en ms
 #define SCORE_THRESHOLD     100.0   // Puntos minimos para considerar "juego"
 
@@ -752,54 +752,68 @@ void SmartOptimize() {
     if (bestIdx >= 0 && bestScore >= SCORE_THRESHOLD) {
         gamePid = g_procs[bestIdx].pid;
         g_protectedPid = gamePid;
-        g_gameModeActive = TRUE;
-        DBG("  >>> JUEGO DETECTADO: %s (PID %lu, Score %.1f)\n",
-            g_procs[bestIdx].name, gamePid, bestScore);
+        
+        if (!g_gameModeActive) {
+            // TRANSICIÓN A MODO JUEGO
+            g_gameModeActive = TRUE;
+            DBG("  >>> TRANSICION A MODO JUEGO: %s (PID %lu, Score %.1f)\n",
+                g_procs[bestIdx].name, gamePid, bestScore);
 
-        // 1. Subir prioridad del juego
-        HANDLE hGame = OpenProcess(PROCESS_SET_INFORMATION, FALSE, gamePid);
-        if (hGame) {
-            SetPriorityClass(hGame, HIGH_PRIORITY_CLASS);
-            DBG("  >>> Prioridad elevada a HIGH_PRIORITY_CLASS\n");
-            CloseHandle(hGame);
+            // 1. Subir prioridad del juego
+            HANDLE hGame = OpenProcess(PROCESS_SET_INFORMATION, FALSE, gamePid);
+            if (hGame) {
+                SetPriorityClass(hGame, HIGH_PRIORITY_CLASS);
+                DBG("  >>> Prioridad elevada a HIGH_PRIORITY_CLASS\n");
+                CloseHandle(hGame);
+            }
+
+            // 2. Aplicar afinidad de CPU para el juego
+            SetGameCpuAffinity(gamePid);
+
+            // 3. Deprimir procesos en segundo plano
+            DepressBackgroundProcesses(gamePid);
+
+            // 4. Purgar Standby List para liberar RAM al iniciar el juego
+            PurgeStandbyList();
+
+            // 5. Aplicar EmptyWorkingSet únicamente a los procesos que hemos deprimido
+            int optimized = 0;
+            for (int i = 0; i < g_depressedCount; i++) {
+                DWORD depPid = g_depressedProcs[i].pid;
+                HANDLE hProc = OpenProcess(PROCESS_SET_QUOTA, FALSE, depPid);
+                if (hProc) {
+                    EmptyWorkingSet(hProc);
+                    CloseHandle(hProc);
+                    optimized++;
+                }
+            }
+            DBG("  >>> Memoria de %d procesos de segundo plano deprimidos liberada.\n", optimized);
+        } else {
+            DBG("  >>> Modo juego sigue activo: %s (PID %lu)\n", g_procs[bestIdx].name, gamePid);
         }
-
-        // 2. Aplicar afinidad de CPU para el juego
-        SetGameCpuAffinity(gamePid);
-
-        // 3. Deprimir procesos en segundo plano
-        DepressBackgroundProcesses(gamePid);
-
-        // 4. Purgar Standby List para liberar RAM al iniciar/durante el juego
-        PurgeStandbyList();
-
     } else {
         g_protectedPid = 0;
-        g_gameModeActive = FALSE;
-        DBG("  >>> No se detecto juego (Score max: %.1f, Threshold: %.1f)\n",
-            bestScore, SCORE_THRESHOLD);
+        if (g_gameModeActive) {
+            // TRANSICIÓN FUERA DE MODO JUEGO
+            g_gameModeActive = FALSE;
+            DBG("  >>> SALIDA DE MODO JUEGO. Restaurando procesos...\n");
 
-        // Restaurar estado si estabamos en modo juego
-        RestoreBackgroundProcesses();
-    }
-
-    // Aplicar EmptyWorkingSet a todos excepto el juego
-    int optimized = 0, skipped = 0;
-    for (int i = 0; i < validCount; i++) {
-        if (g_procs[i].pid == gamePid && gamePid != 0) {
-            skipped++;
-            continue;
-        }
-        HANDLE hProc = OpenProcess(PROCESS_SET_QUOTA, FALSE, g_procs[i].pid);
-        if (hProc) {
-            EmptyWorkingSet(hProc);
-            CloseHandle(hProc);
-            optimized++;
+            // Restaurar estado si estabamos en modo juego
+            RestoreBackgroundProcesses();
+        } else {
+            DBG("  >>> Sin actividad de juego. Sistema en reposo.\n");
         }
     }
 
-    DBG("\n  Resultado: %d optimizados, %d protegidos\n", optimized, skipped);
     DBG("========================================\n\n");
+}
+
+DWORD WINAPI OptimizerThread(LPVOID lpParam) {
+    while (TRUE) {
+        SmartOptimize();
+        Sleep(OPTIMIZE_INTERVAL);
+    }
+    return 0;
 }
 
 // ==============================================================
@@ -813,13 +827,7 @@ LRESULT CALLBACK WindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam) 
 
     switch (uMsg) {
         case WM_CREATE:
-            SetTimer(hwnd, TIMER_OPTIMIZE, OPTIMIZE_INTERVAL, NULL);
-            SmartOptimize();
-            return 0;
-
-        case WM_TIMER:
-            if (wParam == TIMER_OPTIMIZE)
-                SmartOptimize();
+            CreateThread(NULL, 0, OptimizerThread, NULL, 0, NULL);
             return 0;
 
         case WM_TRAYICON:
@@ -840,7 +848,6 @@ LRESULT CALLBACK WindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam) 
             return 0;
 
         case WM_DESTROY:
-            KillTimer(hwnd, TIMER_OPTIMIZE);
             Shell_NotifyIconW(NIM_DELETE, &g_nid);
             PostQuitMessage(0);
             return 0;
